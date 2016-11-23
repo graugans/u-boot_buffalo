@@ -138,6 +138,12 @@ uchar default_environment[] = {
 #ifdef  CONFIG_EXTRA_ENV_SETTINGS
 	CONFIG_EXTRA_ENV_SETTINGS
 #endif
+#if defined(CONFIG_BUFFALO) && defined(BUFFALO_BIN_VER)
+	"buf_ver="	MK_STR(BUFFALO_BIN_VER)	"\0"
+#endif	//CONFIG_BUFFALO
+#if 0 //defined(CONFIG_BUFFALO)
+	"build_date="	__DATE__" - "__TIME__	"\0"
+#endif	//CONFIG_BUFFALO
 	"\0"
 };
 
@@ -227,6 +233,14 @@ void env_relocate (void)
 	 */
 	env_get_char = env_get_char_memory;
 
+#ifdef CONFIG_BUFFALO
+	if(gd->env_valid == 99){		//CRC Error
+		puts ("*** Environment - bad CRC !\n\n");
+		status_led_blink_num_set(STATUS_LED_DIAG, 3);
+		gd->env_valid = 0;
+	}
+#endif	//CONFIG_BUFFALO
+
 	if (gd->env_valid == 0) {
 #if defined(CONFIG_GTH)	|| defined(CFG_ENV_IS_NOWHERE)	/* Environment not changable */
 		puts ("Using default environment\n\n");
@@ -250,6 +264,9 @@ void env_relocate (void)
 #endif
 		env_crc_update ();
 		gd->env_valid = 1;
+#ifdef CONFIG_BUFFALO
+		saveenv();
+#endif	//CONFIG_BUFFALO
 	}
 	else {
 		env_relocate_spec ();

@@ -15,6 +15,10 @@
 
 /* tftp.c */
 extern void	TftpStart (void);	/* Begin TFTP get */
+#ifdef	CONFIG_BUFFALO
+extern void	TftpServer(void);	/* Begin TFTP server */
+#endif	//CONFIG_BUFFALO
+
 
 /**********************************************************************/
 

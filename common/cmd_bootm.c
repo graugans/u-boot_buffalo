@@ -31,7 +31,9 @@
 #include <malloc.h>
 #include <zlib.h>
 #include <bzlib.h>
-#include <LzmaWrapper.h>
+#ifdef	CONFIG_LZMA
+#include <LzmaDecode.h>
+#endif	//CONFIG_LZMA
 #include <environment.h>
 #include <asm/byteorder.h>
 
@@ -52,12 +54,17 @@ DECLARE_GLOBAL_DATA_PTR;
 #include <hush.h>
 #endif
 
+#ifndef	CONFIG_BUFFALO
 #ifdef CONFIG_SHOW_BOOT_PROGRESS
 # include <status_led.h>
 # define SHOW_BOOT_PROGRESS(arg)	show_boot_progress(arg)
 #else
 # define SHOW_BOOT_PROGRESS(arg)
 #endif
+#else	//CONFIG_BUFFALO
+#include <status_led.h>
+#define SHOW_BOOT_PROGRESS(arg)
+#endif	//CONFIG_BUFFALO
 
 #ifdef CFG_INIT_RAM_LOCK
 #include <asm/cache.h>
@@ -151,8 +158,6 @@ image_header_t header;
 
 ulong load_addr = CFG_LOAD_ADDR;		/* Default Load Address */
 
-#define CONFIG_LZMA 1
-
 int do_bootm (cmd_tbl_t *cmdtp, int flag, int argc, char *argv[])
 {
 	ulong	iflag;
@@ -198,8 +203,12 @@ int do_bootm (cmd_tbl_t *cmdtp, int flag, int argc, char *argv[])
 #endif	/* __I386__ */
 	    {
 		puts ("Bad Magic Number\n");
+#ifndef CONFIG_BUFFALO
 		SHOW_BOOT_PROGRESS (-1);
 		return 1;
+#else	//CONFIG_BUFFALO
+		status_led_blink_num_set(STATUS_LED_DIAG, 2);
+#endif	//CONFIG_BUFFALO
 	    }
 	}
 	SHOW_BOOT_PROGRESS (2);
@@ -212,8 +221,12 @@ int do_bootm (cmd_tbl_t *cmdtp, int flag, int argc, char *argv[])
 
 	if (crc32 (0, (uchar *)data, len) != checksum) {
 		puts ("Bad Header Checksum\n");
+#ifndef CONFIG_BUFFALO
 		SHOW_BOOT_PROGRESS (-2);
 		return 1;
+#else	//CONFIG_BUFFALO
+		status_led_blink_num_set(STATUS_LED_DIAG, 2);
+#endif	//CONFIG_BUFFALO
 	}
 	SHOW_BOOT_PROGRESS (3);
 
@@ -236,8 +249,12 @@ int do_bootm (cmd_tbl_t *cmdtp, int flag, int argc, char *argv[])
 		puts ("   Verifying Checksum ... ");
 		if (crc32 (0, (uchar *)data, len) != ntohl(hdr->ih_dcrc)) {
 			printf ("Bad Data CRC\n");
+#ifndef CONFIG_BUFFALO
 			SHOW_BOOT_PROGRESS (-3);
 			return 1;
+#else	//CONFIG_BUFFALO
+			status_led_blink_num_set(STATUS_LED_DIAG, 2);
+#endif	//CONFIG_BUFFALO
 		}
 		puts ("OK\n");
 	}
@@ -268,8 +285,12 @@ int do_bootm (cmd_tbl_t *cmdtp, int flag, int argc, char *argv[])
 #endif
 	{
 		printf ("Unsupported Architecture 0x%x\n", hdr->ih_arch);
+#ifndef CONFIG_BUFFALO
 		SHOW_BOOT_PROGRESS (-4);
 		return 1;
+#else	//CONFIG_BUFFALO
+		status_led_blink_num_set(STATUS_LED_DIAG, 2);
+#endif	//CONFIG_BUFFALO
 	}
 	SHOW_BOOT_PROGRESS (5);
 
@@ -380,24 +401,42 @@ int do_bootm (cmd_tbl_t *cmdtp, int flag, int argc, char *argv[])
 		}
 		break;
 #endif /* CONFIG_BZIP2 */
+#ifdef CONFIG_BUFFALO
 #ifdef CONFIG_LZMA
-	case IH_COMP_LZMA:
-		printf ("   Uncompressing %s ... ", name);
-		i = lzma_inflate ((unsigned char *)data, len, (unsigned char*)ntohl(hdr->ih_load), &unc_len);
-		if (i != LZMA_RESULT_OK) {
-			printf ("LZMA ERROR %d - must RESET board to recover\n", i);
-			SHOW_BOOT_PROGRESS (-6);
-			udelay(100000);
-			do_reset (cmdtp, flag, argc, argv);
-		}
-		break;
+        case IH_COMP_LZMA:
+                printf ("   Uncompressing %s ... ", name);
+
+#ifdef CONFIG_UNCOMPRESS_TIME
+                tBUncompress = get_ticks();
+#endif
+		unsigned int destLen = 0;
+                i = lzmaBuffToBuffDecompress ((char*)ntohl(hdr->ih_load),
+                                &destLen, (char *)data, len);
+                if (i != LZMA_RESULT_OK) {
+                        printf ("LZMA ERROR %d - must RESET board to recover\n", i);
+                        SHOW_BOOT_PROGRESS (-6);
+                        udelay(100000);
+                        do_reset (cmdtp, flag, argc, argv);
+                }
+#ifdef CONFIG_UNCOMPRESS_TIME
+                tAUncompress = get_ticks();
+                tAUncompress = (tAUncompress - tBUncompress) >> 10;
+                printf("Uncompression time : %lu/%lu\n",tAUncompress,get_tbclk());
+                printf("Uncompression length is %d\n",destLen);
+#endif
+                break;
 #endif /* CONFIG_LZMA */
+#endif	//CONFIG_BUFFALO
 	default:
 		if (iflag)
 			enable_interrupts();
 		printf ("Unimplemented compression type %d\n", hdr->ih_comp);
+#ifndef CONFIG_BUFFALO
 		SHOW_BOOT_PROGRESS (-7);
 		return 1;
+#else	//CONFIG_BUFFALO
+		status_led_blink_num_set(STATUS_LED_DIAG, 2);
+#endif	//CONFIG_BUFFALO
 	}
 	puts ("OK\n");
 	SHOW_BOOT_PROGRESS (7);
@@ -427,8 +466,12 @@ int do_bootm (cmd_tbl_t *cmdtp, int flag, int argc, char *argv[])
 		if (iflag)
 			enable_interrupts();
 		printf ("Can't boot image type %d\n", hdr->ih_type);
+#ifndef CONFIG_BUFFALO
 		SHOW_BOOT_PROGRESS (-8);
 		return 1;
+#else	//CONFIG_BUFFALO
+		status_led_blink_num_set(STATUS_LED_DIAG, 2);
+#endif	//CONFIG_BUFFALO
 	}
 	SHOW_BOOT_PROGRESS (8);
 
@@ -481,6 +524,9 @@ int do_bootm (cmd_tbl_t *cmdtp, int flag, int argc, char *argv[])
 	puts ("\n## Control returned to monitor - resetting...\n");
 	do_reset (cmdtp, flag, argc, argv);
 #endif
+#ifdef CONFIG_BUFFALO
+	status_led_blink_num_set(STATUS_LED_DIAG, 2);
+#endif	//CONFIG_BUFFALO
 	return 1;
 }
 
@@ -1292,7 +1338,9 @@ print_type (image_header_t *hdr)
 	case IH_COMP_NONE:	comp = "uncompressed";		break;
 	case IH_COMP_GZIP:	comp = "gzip compressed";	break;
 	case IH_COMP_BZIP2:	comp = "bzip2 compressed";	break;
+#ifdef CONFIG_BUFFALO
 	case IH_COMP_LZMA:	comp = "lzma compressed";	break;
+#endif	//CONFIG_BUFFALO
 	default:		comp = "unknown compression";	break;
 	}
 

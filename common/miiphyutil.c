@@ -114,7 +114,10 @@ void miiphy_register(char *name,
 
 	debug("miiphy_register: added '%s', read=0x%08lx, write=0x%08lx\n",
 			new_dev->name, new_dev->read, new_dev->write);
-
+#ifdef	CONFIG_BUFFALO_DEBUG
+	printf("miiphy_register: added '%s', read=0x%08lx, write=0x%08lx\n",
+			new_dev->name, new_dev->read, new_dev->write);
+#endif	//CONFIG_BUFFALO_DEBUG
 	/* add it to the list */
 	list_add_tail(&new_dev->link, &mii_devs);
 

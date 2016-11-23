@@ -26,6 +26,11 @@
 #include <common.h>
 #include <flash.h>
 
+#ifdef CONFIG_BUFFALO
+#ifdef CONFIG_STATUS_LED
+#include <status_led.h>
+#endif	//CONFIG_STATUS_LED
+#endif	//CONFIG_BUFFALO
 #if !defined(CFG_NO_FLASH)
 
 extern flash_info_t  flash_info[]; /* info for FLASH chips */
@@ -145,6 +150,11 @@ flash_write (char *src, ulong addr, ulong cnt)
 	flash_info_t *info_first = addr2info (addr);
 	flash_info_t *info_last  = addr2info (end );
 	flash_info_t *info;
+#if defined(CONFIG_BUFFALO) && defined(CONFIG_STATUS_LED)
+	int count=0;
+#endif	//CONFIG_BUFFALO
+
+
 
 	if (cnt == 0) {
 		return (ERR_OK);
@@ -171,6 +181,16 @@ flash_write (char *src, ulong addr, ulong cnt)
 	for (info = info_first; info <= info_last && cnt>0; ++info) {
 		ulong len;
 
+#if defined(CONFIG_BUFFALO) && defined(CONFIG_STATUS_LED)
+		if(count==0xF){
+			//printf(".");
+			status_led_set(STATUS_LED_DIAG, STATUS_LED_ON);
+		}else if(count==7){
+			//printf(",");
+			status_led_set(STATUS_LED_DIAG, STATUS_LED_OFF);
+		}
+		count = (++count) & 0xF;
+#endif	//CONFIG_BUFFALO
 		len = info->start[0] + info->size - addr;
 		if (len > cnt)
 			len = cnt;

@@ -107,6 +107,13 @@ int  env_init(void)
 	ulong addr1 = (ulong)&(flash_addr->data);
 	ulong addr2 = (ulong)&(flash_addr_new->data);
 
+#ifdef CONFIG_BUFFALO
+	uchar check_buf[16] = {0};
+
+	memcpy((uchar *)(unsigned long)check_buf, env_ptr, 8);
+
+#endif	//CONFIG_BUFFALO
+
 #ifdef CONFIG_OMAP2420H4
 	int flash_probe(void);
 
@@ -143,6 +150,16 @@ int  env_init(void)
 		gd->env_valid = 2;
 	}
 
+#ifdef	CONFIG_BUFFALO
+	else if(check_buf[0]==0xff && check_buf[1]==0xff && check_buf[2]==0xff &&
+		    check_buf[3]==0xff && check_buf[4]==0xff && check_buf[5]==0xff) {
+		gd->env_addr  = (ulong)&default_environment[0];
+		gd->env_valid = 0;
+	} else {
+		gd->env_addr  = (ulong)&default_environment[0];
+		gd->env_valid = 99;	//CRC Error
+	}
+#endif	//CONFIG_BUFFALO
 #ifdef CONFIG_OMAP2420H4
 bad_flash:
 #endif

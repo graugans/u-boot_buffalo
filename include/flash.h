@@ -130,6 +130,11 @@ extern void flash_read_factory_serial(flash_info_t * info, void * buffer, int of
 #define TOSH_MANUFACT	0x00980098	/* TOSHIBA manuf. ID in D23..D16, D7..D0 */
 #define MT2_MANUFACT	0x002C002C	/* alternate MICRON manufacturer ID*/
 #define EXCEL_MANUFACT	0x004A004A	/* Excel Semiconductor			*/
+#ifdef	CONFIG_BUFFALO
+#define MX_MANUFACT	    0x00C200C2  /*Add by kaiker,MXIC */
+#define AMD_MANUFACT_EON 0x00420042	/*Add by kaiker */
+#define EON_MANUFACT	0x007F007F	/* add by Buffalo: EON */
+#endif	//CONFIG_BUFFALO
 
 					/* Micron Technologies (INTEL compat.)	*/
 #define MT_ID_28F400_T	0x44704470	/* 28F400B3 ID ( 4 M, top boot sector)	*/
@@ -183,6 +188,18 @@ extern void flash_read_factory_serial(flash_info_t * info, void * buffer, int of
 #define MX_ID_LV320T	0x22A722A7	/* 29LV320T by Macronix, AMD compatible */
 #define AMD_ID_LV320B	0x22F922F9	/* 29LV320B ID (32 M, bottom boot sect) */
 #define MX_ID_LV320B	0x22A822A8	/* 29LV320B by Macronix, AMD compatible */
+#ifdef	CONFIG_BUFFALO
+#define MX_ID_LV320CT   0x000022A7    /* 4 M x 16 T  */ /* Add by Buffalo */
+#define MX_ID_LV320CB   0x000022A8    /* 4 M x 16 B  */ /* Add by Buffalo */
+#define MX_ID_LV320BT   0x000022A8    /* 4 M x 16 T/B add by kaiker  */
+#define EN_ID_29LV641L   0x000022A8 /* 8 M x 16 T/B add by kaiker  */
+#define EN_ID_29LV640H   0x00002228 /* 8 M x 16 T/B add by kaiker  */
+#define MX_ID_29LV640DB 0x000022CB	/* 29LV640DBTC (64M, bottom boot sect) */
+#define MX_ID_29LV128DB 0x0000227A	/* 29LV128DBTC (128M, bottom boot sect) */
+#define EN_ID_29LV320T   0x000022F6    /* 4 M x 16 T  */ /* Add by Buffalo */
+#define EN_ID_29LV320B   0x000022F9    /* 4 M x 16 B  */ /* Add by Buffalo */
+#endif	//CONFIG_BUFFALO
+
 
 #define AMD_ID_DL322T	0x22552255	/* 29DL322T ID (32 M, top boot sector)	*/
 #define AMD_ID_DL322B	0x22562256	/* 29DL322B ID (32 M, bottom boot sect) */
@@ -209,6 +226,20 @@ extern void flash_read_factory_serial(flash_info_t * info, void * buffer, int of
 #define AMD_ID_GL064M_3 0x22012201	/* 3rd ID word for S29GL064M-R6 */
 #define AMD_ID_GL064MT_2 0x22102210	/* 2nd ID word for S29GL064M-R3 (top boot sector) */
 #define AMD_ID_GL064MT_3 0x22012201	/* 3rd ID word for S29GL064M-R3 (top boot sector) */
+#ifdef	CONFIG_BUFFALO
+#define	AMD_ID_GL032M1_2 0x221D221D	/* 2nd ID word for S29GL032N-00/01 */
+#define	AMD_ID_GL032M1_3 0x22002200	/* 2nd ID word for S29GL032N-00/01 */
+#define	AMD_ID_GL032M4_2 0x221A221A	/* 2nd ID word for S29GL032N-04 */
+#define	AMD_ID_GL032M4_3 0x22002200	/* 2nd ID word for S29GL032N-04 */
+#define AMD_ID_GL064M1_2 0x220C220C	/* 2nd ID word for S29GL064M-R6 */
+#define AMD_ID_GL064M1_3 0x22012201	/* 3rd ID word for S29GL064M-R6 */
+#define AMD_ID_GL064M4_2 0x22102210	/* 2nd ID word for S29GL064N-04 */
+#define AMD_ID_GL064M4_3 0x22042204	/* 3rd ID word for S29GL064N-04 */
+#define AMD_ID_GL128N_2  0x22212221	/* 2nd ID word for S29GL064M-R6 */
+#define AMD_ID_GL128N_3  0x22012201	/* 3rd ID word for S29GL064M-R6 */
+#define AMD_ID_GL256N_2  0x22222222	/* 2nd ID word for S29GL064N-04 */
+#define AMD_ID_GL256N_3  0x22012201	/* 3rd ID word for S29GL064N-04 */
+#endif	//CONFIG_BUFFALO
 
 #define AMD_ID_LV320B_2 0x221A221A	/* 2d ID word for AM29LV320MB at 0x38 */
 #define AMD_ID_LV320B_3 0x22002200	/* 3d ID word for AM29LV320MB at 0x3c */
@@ -399,6 +430,18 @@ extern void flash_read_factory_serial(flash_info_t * info, void * buffer, int of
 #define FLASH_AMLV320T	0x00A8		/* AMD 29LV320MT   ( 32M = 2M x 16 )	*/
 #define FLASH_AMLV256U	0x00AA		/* AMD 29LV256M	   ( 256M = 16M x 16 )	*/
 #define FLASH_MXLV320B	0x00AB		/* MX  29LV320MB   ( 32M = 2M x 16 )	*/
+#ifdef	CONFIG_BUFFALO
+#define FLASH_MXLV320CT 0x22A7		/* Mx 29LV320CT  (4M x 16) */  /* Add by Buffalo */
+#define FLASH_MXLV320CB 0x22A8		/* Mx 29LV320CB  (4M x 16) */  /* Add by Buffalo */
+#define FLASH_MXLV320BT 0x22A8		/* Mx 29LV320B/T  (4M x 16) */
+#define	FLASH_S29GL32M1	0x221D		/* S29GL032N-00/01	(4M x 16) */
+#define	FLASH_S29GL32M4	0x221A		/* S29GL032N-04	 */
+#define	FLASH_S29GL64M1	0x220C		/* S29GL064N-00/01 */
+#define	FLASH_S29GL64M4	0x2210		/* S29GL064N-04 (bottom) */
+#define	FLASH_S29GL128N	0x2221		/* S29GL128N */
+#define	FLASH_S29GL256N	0x2222		/* S29GL256N */
+#endif	//CONFIG_BUFFALO
+#define FLASH_MXLV320BT 0x22A8     /* Mx 29LV4320B/T  (4M x 16) */
 #define FLASH_MXLV320T	0x00AC		/* MX  29LV320MT   ( 32M = 2M x 16 )	*/
 #define FLASH_28F256L18T 0x00B0		/* Intel 28F256L18T 256M = 128K x 255 + 32k x 4 */
 #define FLASH_AMDL163T	0x00B2		/* AMD AM29DL163T (2M x 16 )			*/
@@ -416,7 +459,18 @@ extern void flash_read_factory_serial(flash_info_t * info, void * buffer, int of
 #define FLASH_MT28S4M16LC 0x00E1	/* Micron MT28S4M16LC			*/
 #define FLASH_S29GL064M 0x00F0		/* Spansion S29GL064M-R6		*/
 
-#define FLASH_M25P64    0x00F2      
+#define FLASH_M25P64    0x00F2
+
+#ifdef	CONFIG_BUFFALO
+#define FLASH_EN29LV320T 0x22F6		/* EON 29LV320T  (4M x 16) */  /* Add by Buffalo */
+#define FLASH_EN29LV320B 0x22F9		/* EON 29LV320B  (4M x 16) */  /* Add by Buffalo */
+#endif	//CONFIG_BUFFALO
+
+
+#ifndef	CONFIG_BUFFALO
+#define FLASH_S29GL256N 0x227E		/* Spansion S29GL256N			*/
+#endif	//CONFIG_BUFFALO
+
 
 #define FLASH_UNKNOWN	0xFFFF		/* unknown flash type			*/
 
@@ -435,6 +489,9 @@ extern void flash_read_factory_serial(flash_info_t * info, void * buffer, int of
 #define FLASH_MAN_MT	0x00400000
 #define FLASH_MAN_SHARP 0x00500000
 #define FLASH_MAN_ATM	0x00600000
+#ifdef	CONFIG_BUFFALO
+#define FLASH_MAN_EON   0x00600000  /* EON: add by Buffalo */
+#endif	//CONFIG_BUFFALO
 
 
 #define FLASH_TYPEMASK	0x0000FFFF	/* extract FLASH type	information	*/

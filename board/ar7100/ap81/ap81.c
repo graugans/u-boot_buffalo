@@ -13,6 +13,21 @@ ar7100_usb_initial_config(void)
     ar7100_reg_wr_nf(AR7100_USB_PLL_CONFIG, 0x00001030);
 }
 
+void
+ar7100_ap81_gpio_config_unused(void)
+{
+	volatile int u4Temp;
+	/* BIT MASK for only unused pins  pins 4 5 7 8 9 11 16 17 18 19 20 are unused*/
+#define AP81_GPIO_UNUSED_PINMASK   0x001F0BB0
+	/* configure these as output pins */
+ 	ar7100_reg_wr(AR7100_GPIO_OE, AP81_GPIO_UNUSED_PINMASK);
+	u4Temp = ar7100_reg_rd(AR7100_GPIO_OE);
+	/* drive these pins low */
+	u4Temp = ar7100_reg_rd(AR7100_GPIO_OUT);
+	ar7100_reg_wr(AR7100_GPIO_OUT,
+	          ((ar7100_reg_rd(AR7100_GPIO_OUT)) & (~(AP81_GPIO_UNUSED_PINMASK))));
+	u4Temp = ar7100_reg_rd(AR7100_GPIO_OUT);
+}
 int
 ar7100_mem_config()
 {
@@ -129,6 +144,7 @@ ar7100_mem_config()
     udelay(100);
 
     ar7100_usb_initial_config();
+    ar7100_ap81_gpio_config_unused();
 
     i = ar7100_ddr_find_size();
 

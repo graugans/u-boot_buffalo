@@ -57,6 +57,10 @@ ifeq ($(ARCH),blackfin)
 PLATFORM_CPPFLAGS+= -D__BLACKFIN__ -mno-underscore
 endif
 
+ifeq ($(CONFIG_BUFFALO),y)
+PLATFORM_CPPFLAGS+= -DCONFIG_BUFFALO
+endif
+
 ifdef	ARCH
 sinclude $(TOPDIR)/$(ARCH)_config.mk	# include architecture dependend rules
 endif
@@ -112,7 +116,7 @@ OBJDUMP = $(CROSS_COMPILE)objdump
 RANLIB	= $(CROSS_COMPILE)RANLIB
 
 RELFLAGS= $(PLATFORM_RELFLAGS)
-#DBGFLAGS= -g #-DDEBUG
+DBGFLAGS= -g #-DDEBUG
 OPTFLAGS= -Os #-fomit-frame-pointer
 ifndef LDSCRIPT
 #LDSCRIPT := $(TOPDIR)/board/$(BOARDDIR)/u-boot.lds.debug

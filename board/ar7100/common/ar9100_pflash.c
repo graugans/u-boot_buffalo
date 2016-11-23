@@ -4,6 +4,14 @@
 #include <asm/types.h>
 #include "ar7100_soc.h"
 
+#ifdef	CONFIG_STATUS_LED
+#include <status_led.h>
+#endif	//CONFIG_STATUS_LED
+
+#ifndef	CONFIG_BUFFALO		//for CAMEO Design
+#error	"Need BUFFALO configuration"
+#endif	//CONFIG_BUFFALO	//for CAMEO Design
+
 //----------------------------------------------------------------------------
 // Common device details.
 #define FLASHWORD(_x)			((CFG_FLASH_WORD_SIZE)(_x))
@@ -30,7 +38,9 @@
  * globals
  */
 flash_info_t flash_info[CFG_MAX_FLASH_BANKS];
-
+#ifdef	CONFIG_BUFFALO		//for CAMEO Design
+static ushort read_dev_id2(void);
+#endif	//CONFIG_BUFFALO	//for CAMEO Design
 typedef struct ar9100_flash_geom {
     ushort vendor_id;
     ushort device_id;
@@ -62,10 +72,16 @@ unsigned long flash_init(void)
     ulong sector_size;
     ar9100_flash_geom_t *geom;
     ushort venid, devid;
+#ifdef	CONFIG_BUFFALO		//for CAMEO Design
+	ushort devid2;
+#endif	//CONFIG_BUFFALO	//for CAMEO Design
 
     int i;
 
     flash_info->flash_id = read_id();
+#ifdef	CONFIG_BUFFALO		//for CAMEO Design
+    devid2 = read_dev_id2();
+#endif	//CONFIG_BUFFALO	//for CAMEO Design
     venid = VENDOR_ID(flash_info->flash_id);
     devid = DEVICE_ID(flash_info->flash_id);
 
@@ -81,8 +97,19 @@ unsigned long flash_init(void)
         printf("Unknown flash device\n");
         return -1;
     }
+#ifndef	CONFIG_BUFFALO		//for CAMEO Design
     flash_info->size = geom->size;	/* bytes */
     flash_info->sector_count = geom->nsectors;
+#else	//CONFIG_BUFFALO	//for CAMEO Design
+    if(DEVICE_ID(flash_info->flash_id) == 0x227e && devid2 == 0x2222)  {
+        flash_info->size = 0x2000000;  /* For 32MB Spansion flash */
+        flash_info->sector_count = 256;
+    }
+    else {
+        flash_info->size = geom->size;	/* bytes */
+        flash_info->sector_count = geom->nsectors;
+   }
+#endif	//CONFIG_BUFFALO	//for CAMEO Design
     sector_size = (geom->sector_size * 16); /* One Erase block size */
 
     for (i = 0; i < flash_info->sector_count; i++) {
@@ -118,8 +145,15 @@ int flash_erase(flash_info_t * info, int s_first, int s_last)
     volatile CFG_FLASH_WORD_SIZE *ROM =
         (volatile CFG_FLASH_WORD_SIZE *) (info->start[0]);
     int timeout;
+#ifdef	CONFIG_STATUS_LED
+    int	led_cnt	= 0;
+#endif	//CONFIG_STATUS_LED
 
     printf("First %#x last %#x\n", s_first, s_last);
+
+#ifdef	CONFIG_STATUS_LED
+	status_led_set(STATUS_LED_DIAG, STATUS_LED_ON);
+#endif	//CONFIG_STATUS_LED
 
     for (i = s_first; i <= s_last; i++) {
         CFG_FLASH_WORD_SIZE state, prev_state, rd_data;
@@ -165,8 +199,16 @@ int flash_erase(flash_info_t * info, int s_first, int s_last)
 	    printf("Error erasing flash...\n");
             return -1;
         }
+
+#ifdef	CONFIG_STATUS_LED
+		status_led_set(STATUS_LED_DIAG, (led_cnt++ & 0x01) ? STATUS_LED_ON : STATUS_LED_OFF);
+#endif	//CONFIG_STATUS_LED
     }
         printf("\n");
+
+#ifdef	CONFIG_STATUS_LED
+	status_led_set(STATUS_LED_DIAG, STATUS_LED_OFF);
+#endif	//CONFIG_STATUS_LED
 
     return 0;
 }
@@ -181,11 +223,17 @@ int write_buff(flash_info_t * info, uchar * src, ulong addr, ulong cnt)
 {
     ulong cp, wp, data;
     int i, l, rc, j=0, count;
+#ifdef	CONFIG_STATUS_LED
+    int	led_cnt	= 0;
+#endif	//CONFIG_STATUS_LED
 
     wp = (addr & ~3);   /* get lower word aligned address */
     count=cnt;
     printf("\n");
 
+#ifdef	CONFIG_STATUS_LED
+	status_led_set(STATUS_LED_DIAG, STATUS_LED_ON);
+#endif	//CONFIG_STATUS_LED
     /*
      * handle unaligned start bytes
      */
@@ -226,6 +274,10 @@ int write_buff(flash_info_t * info, uchar * src, ulong addr, ulong cnt)
         wp += 4;
         cnt -= 4;
         j += 4;
+#ifdef	CONFIG_STATUS_LED
+        if (!(j & 0xFFFF))
+			status_led_set(STATUS_LED_DIAG, (led_cnt++ & 0x01) ? STATUS_LED_ON : STATUS_LED_OFF);
+#endif	//CONFIG_STATUS_LED
     }
 
     printf("\b\b\b\b\b %3d\%\n",(((j + 4) * 100 ) / count));
@@ -244,6 +296,13 @@ int write_buff(flash_info_t * info, uchar * src, ulong addr, ulong cnt)
     for (; i < 4; ++i, ++cp) {
         data = (data << 8) | (*(uchar *) cp);
     }
+#ifdef	CONFIG_STATUS_LED
+    {
+    	int	retval	= write_word(info, wp, data);
+		status_led_set(STATUS_LED_DIAG, STATUS_LED_OFF);
+		return	retval;
+    }
+#endif	//CONFIG_STATUS_LED
     return (write_word(info, wp, data));
 }
 
@@ -299,6 +358,31 @@ static int write_word(flash_info_t * info, ulong dest, ulong data)
 
     return (0);
 }
+#ifdef	CONFIG_BUFFALO		//for CAMEO Design
+static ushort read_dev_id2(void)
+{
+    volatile CFG_FLASH_WORD_SIZE *ROM;
+    ushort id;
+
+    ROM = (volatile CFG_FLASH_WORD_SIZE *) CFG_FLASH_BASE;
+
+    ROM[CFG_FLASH_ADDR0] = FLASH_Setup_Code1;
+    ROM[CFG_FLASH_ADDR1] = FLASH_Setup_Code2;
+    ROM[CFG_FLASH_ADDR0] = FLASH_Read_ID;
+
+    udelay(10000);
+
+    id = ROM[14];
+    printf("Dev ID2:%X\n",id);
+
+    ROM[CFG_FLASH_ADDR0] = FLASH_Setup_Code1;
+    ROM[CFG_FLASH_ADDR1] = FLASH_Setup_Code2;
+    ROM[CFG_FLASH_ADDR0] = FLASH_Read_ID_Exit;
+
+    udelay(10000);
+    return id;
+}
+#endif	//CONFIG_BUFFALO	//for CAMEO Design
 
 static ulong read_id()
 {

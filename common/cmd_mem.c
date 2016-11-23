@@ -429,6 +429,9 @@ int do_mem_cp ( cmd_tbl_t *cmdtp, int flag, int argc, char *argv[])
 		int rc;
 
 		puts ("Copy to Flash... ");
+#ifdef CONFIG_BUFFALO
+		printf ("\n Copy %d byte to Flash... ",count*size);
+#endif	//CONFIG_BUFFALO
 
 		rc = flash_write ((char *)addr, dest, count*size);
 		if (rc != 0) {

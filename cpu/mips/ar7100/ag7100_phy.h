@@ -1,25 +1,12 @@
 #ifndef _AG7100_PHY_H
 #define _AG7100_PHY_H
 
+#ifndef	CONFIG_BUFFALO		//for CAMEO Design
+#error	"Need BUFFALO configuration"
+#endif	//CONFIG_BUFFALO	//for CAMEO Design
+
 #ifdef CFG_ATHRS26_PHY
-#ifndef AR9100
-#include "../board/ar7100/ap94/athrs26_phy.h"
 
-#define ag7100_phy_setup(unit)          athrs26_phy_setup (unit)
-#define ag7100_phy_is_up(unit)          athrs26_phy_is_up (unit)
-#define ag7100_phy_speed(unit)          athrs26_phy_speed (unit)
-#define ag7100_phy_is_fdx(unit)         athrs26_phy_is_fdx (unit)
-
-static inline unsigned int 
-ag7100_get_link_status(int unit, int *link, int *fdx, ag7100_phy_speed_t *speed)
-{
-  *link=ag7100_phy_is_up(unit);
-  *fdx=ag7100_phy_is_fdx(unit);
-  *speed=ag7100_phy_speed(unit);
-  return 0;
-}
-
-#else
 #define ag7100_phy_setup(unit) do { \
 if(!unit) \
         athrs26_phy_setup(unit); \
@@ -40,41 +27,7 @@ if(!unit) \
         speed = miiphy_speed("eth0", CFG_PHY_ADDR); \
 } while (0);
 
-#endif // Hydra or Howl
 #endif
-
-#ifdef CFG_ATHRS16_PHY
-
-#include "../board/ar7100/common/athrs16_phy.h"
-
-#define ag7100_phy_setup(unit)          athrs16_phy_setup (unit)
-#define ag7100_phy_is_up(unit)          athrs16_phy_is_up (unit)
-#define ag7100_phy_speed(unit)          athrs16_phy_speed (unit)
-#define ag7100_phy_is_fdx(unit)         athrs16_phy_is_fdx (unit)
-/*
-#define ag7100_phy_ioctl(unit, args)    athr_ioctl(unit,args)
-#define ag7100_phy_is_lan_pkt           athr_is_lan_pkt
-#define ag7100_phy_set_pkt_port         athr_set_pkt_port
-#define ag7100_phy_tag_len              ATHR_VLAN_TAG_SIZE
-#define ag7100_phy_get_counters         athrs16_get_counters
-*/
-
-static inline unsigned int
-ag7100_get_link_status(int unit, int *link, int *fdx, ag7100_phy_speed_t *speed)
-{
-  *link=ag7100_phy_is_up(unit);
-  *fdx=ag7100_phy_is_fdx(unit);
-  *speed=ag7100_phy_speed(unit);
-  return 0;
-}
-
-static inline int
-ag7100_print_link_status(int unit)
-{
-  return -1;
-}
-
-#endif /* CFG_ATHRS16_PHY */
 
 #ifdef CFG_VSC8201_PHY
 
@@ -204,4 +157,25 @@ if(!unit) \
 } while (0);
 
 #endif
+#ifdef	CONFIG_BUFFALO		//for CAMEO Design
+#ifdef CFG_RTL8366SR_PHY
+#define ag7100_phy_setup(unit) do { \
+if(!unit) \
+        rtl8366sr_phy_setup(unit); \
+} while (0);
+
+#define ag7100_phy_link(unit,link,fdx,speed) do { \
+		/*link=rtl8366sr_phy_is_link_alive(unit);*/ \
+        link=rtl8366sr_phy_is_up(unit); \
+} while (0);
+
+#define ag7100_phy_duplex(unit,duplex) do { \
+        duplex = rtl8366sr_phy_is_fdx(unit); \
+} while (0);
+
+#define ag7100_phy_speed(unit,speed) do { \
+        speed = rtl8366sr_phy_speed(unit); \
+} while (0);
+#endif
+#endif	//CONFIG_BUFFALO	//for CAMEO Design
 #endif /*_AG7100_PHY_H*/

@@ -340,11 +340,19 @@ extern int		NetState;		/* Network loop state		*/
 extern int		NetRestartWrap;		/* Tried all network devices	*/
 #endif
 
+#ifndef	CONFIG_BUFFALO
 #if defined(CFG_ATHRS26_PHY) && defined(CFG_ATHRHDR_EN)
 typedef enum { BOOTP, RARP, ARP, TFTP, DHCP, PING, DNS, NFS, CDP, NETCONS, SNTP, ATHRHDR } proto_t;
 #else
 typedef enum { BOOTP, RARP, ARP, TFTP, DHCP, PING, DNS, NFS, CDP, NETCONS, SNTP } proto_t;
 #endif
+#else	//CONFIG_BUFFALO
+#if defined(CFG_ATHRS26_PHY) && defined(CFG_ATHRHDR_EN)
+typedef enum { BOOTP, RARP, ARP, TFTP, DHCP, PING, DNS, NFS, CDP, NETCONS, SNTP, ATHRHDR, TFTPS } proto_t;
+#else
+typedef enum { BOOTP, RARP, ARP, TFTP, DHCP, PING, DNS, NFS, CDP, NETCONS, SNTP, TFTPS } proto_t;
+#endif
+#endif	//CONFIG_BUFFALO
 
 /* from net/net.c */
 extern char	BootFile[128];			/* Boot File name		*/

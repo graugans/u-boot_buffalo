@@ -33,6 +33,10 @@
 #ifndef _STATUS_LED_H_
 #define	_STATUS_LED_H_
 
+#ifdef	CONFIG_BUFFALO
+#define	CONFIG_STATUS_LED		1 /* enable status led driver */
+#endif	//CONFIG_BUFFALO
+
 #ifdef CONFIG_STATUS_LED
 
 #define STATUS_LED_OFF		0
@@ -41,6 +45,23 @@
 
 void status_led_tick (unsigned long timestamp);
 void status_led_set  (int led, int state);
+
+
+#ifdef CONFIG_BUFFALO
+
+extern void status_led_blink_set (int led, int state);
+extern void status_led_blink_num_set (int led, int num);
+
+
+
+/* last value written to the external register; we cannot read back */
+extern unsigned int last_er_val;
+
+/* led_id_t is unsigned long mask */
+typedef unsigned int led_id_t;
+
+
+#endif	/* CONFIG_BUFFALO */
 
 /*****  TQM8xxL  ********************************************************/
 #if defined(CONFIG_TQM8xxL) && !defined(CONFIG_HMI10)

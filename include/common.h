@@ -356,7 +356,11 @@ int	dcache_status (void);
 void	dcache_enable (void);
 void	dcache_disable(void);
 void	relocate_code (ulong, gd_t *, ulong);
+#ifndef	CONFIG_BUFFALO
 void 	ar7240_ddr_tap_init(void);
+#else	//CONFIG_BUFFALO
+unsigned int	ar7240_ddr_tap_init(unsigned int cnt, unsigned int tap_val, unsigned int init_skip_flag);
+#endif	//CONFIG_BUFFALO
 ulong	get_endaddr   (void);
 void	trap_init     (ulong);
 #if defined (CONFIG_4xx)	|| \

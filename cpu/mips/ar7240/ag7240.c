@@ -72,7 +72,7 @@ static int ag7240_recv(struct eth_device *dev)
     int length;
     ag7240_desc_t *f;
     ag7240_mac_t *mac;
- 
+
     mac = (ag7240_mac_t *)dev->priv;
 
     for (;;) {
@@ -109,8 +109,16 @@ static void ag7240_hw_start(ag7240_mac_t *mac)
     {
         ag7240_reg_wr(mac, AG7240_MAC_CFG1, (AG7240_MAC_CFG1_RX_EN |
             AG7240_MAC_CFG1_TX_EN));
+#ifndef	CONFIG_BUFFALO
         ag7240_reg_rmw_set(mac, AG7240_MAC_CFG2, (AG7240_MAC_CFG2_PAD_CRC_EN |
             AG7240_MAC_CFG2_LEN_CHECK | AG7240_MAC_CFG2_IF_1000));
+#else	//CONFIG_BUFFALO
+    ag7240_reg_rmw_set(mac, AG7240_MAC_CFG2, (AG7240_MAC_CFG2_PAD_CRC_EN |
+		         AG7240_MAC_CFG2_LEN_CHECK));
+#ifdef	CONFIG_BUFFALO_DEBUG
+//    ag7240_reg_wr(mac,AG7240_MAC_CFG2,(0x7337));
+#endif	//CONFIG_BUFFALO_DEBUG
+#endif	//CONFIG_BUFFALO
     }
     else {
 
@@ -119,6 +127,9 @@ static void ag7240_hw_start(ag7240_mac_t *mac)
 
     ag7240_reg_rmw_set(mac, AG7240_MAC_CFG2, (AG7240_MAC_CFG2_PAD_CRC_EN |
 		         AG7240_MAC_CFG2_LEN_CHECK));
+#ifdef	CONFIG_BUFFALO_DEBUG
+//    ag7240_reg_wr(mac,AG7240_MAC_CFG2,(0x7337));
+#endif	//CONFIG_BUFFALO_DEBUG
    }
 
 #ifdef AR7240_EMU
@@ -157,14 +168,14 @@ static void ag7240_hw_start(ag7240_mac_t *mac)
             ag7240_reg_wr(mac, AG7240_MAC_MII_MGMT_CFG, mgmt_cfg_val | (1 << 31));
             ag7240_reg_wr(mac, AG7240_MAC_MII_MGMT_CFG, mgmt_cfg_val);
 
-            if(athrs26_mdc_check() == 0) 
+            if(athrs26_mdc_check() == 0)
                 break;
             check_cnt++;
         }
         if(check_cnt == 10)
             printf("%s: MDC check failed\n", __func__);
     }
-    
+
     ag7240_reg_wr(mac, AG7240_MAC_FIFO_CFG_0, 0x1f00);
 
     ag7240_reg_rmw_set(mac, AG7240_MAC_FIFO_CFG_4, 0x3ffff);
@@ -172,9 +183,9 @@ static void ag7240_hw_start(ag7240_mac_t *mac)
     ag7240_reg_wr(mac, AG7240_MAC_FIFO_CFG_1, 0x10ffff);
     ag7240_reg_wr(mac, AG7240_MAC_FIFO_CFG_2, 0xAAA0555);
 
-    /* 
-     * Setting Drop CRC Errors, Pause Frames,Length Error frames 
-     * and Multi/Broad cast frames. 
+    /*
+     * Setting Drop CRC Errors, Pause Frames,Length Error frames
+     * and Multi/Broad cast frames.
      */
 
     ag7240_reg_wr(mac, AG7240_MAC_FIFO_CFG_5, 0x7eccf);
@@ -208,7 +219,7 @@ static int ag7240_check_link(ag7240_mac_t *mac)
            break;
 
        case _100BASET:
-           ag7240_set_mac_if(mac, 0);
+			ag7240_set_mac_if(mac, 0);
            ag7240_set_mac_speed(mac, 1);
            ag7240_reg_rmw_clear(mac, AG7240_MAC_FIFO_CFG_5, (1 << 19));
            break;
@@ -225,12 +236,14 @@ static int ag7240_check_link(ag7240_mac_t *mac)
     }
 
    if (mac->link && (duplex == mac->duplex) && (speed == mac->speed))
-        return 1; 
+        return 1;
 
     mac->duplex = duplex;
     mac->speed = speed;
 
+#ifndef	CONFIG_BUFFALO
     printf("dup %d speed %d\n", duplex, speed);
+#endif	//CONFIG_BUFFALO
 
     ag7240_set_mac_duplex(mac,duplex);
 
@@ -331,9 +344,9 @@ ag7240_mac_addr_loc(void)
     /*
     ** BOARDCAL environmental variable has the address of the cal sector
     */
-    
+
     return ((unsigned char *)BOARDCAL);
-    
+
 #else
 	/* MAC address is store in the 2nd 4k of last sector */
 	return ((unsigned char *)
@@ -358,8 +371,31 @@ static void ag7240_get_ethaddr(struct eth_device *dev)
         printf("%s: unknown ethernet device %s\n", __func__, dev->name);
         return;
     }
-
     /* Use fixed address if the above address is invalid */
+#ifdef	CONFIG_BUFFALO
+#if	1	//DEBUG
+    if (strcmp(dev->name,"eth1")==0) {
+    	memset(mac, 0xFF, 6);
+    } else
+#endif	//DEBUG
+    {
+		unsigned char	*p;
+		unsigned char	*e;
+		unsigned		i;
+		p	= getenv("uboot_ethaddr") ? : getenv("ethaddr");
+		if (p) {
+			printf("Reading MAC Address from ENV(0x%p)\n", p);
+			for (i=0 ; i<6 ; i++) {
+				mac[i] = p ? simple_strtoul (p, &e, 16) : 0;
+				if (p)	p = (*e) ? e+1 : e;
+			}
+
+		}
+	}
+    if (mac[0]==0x02) {
+    	;
+    } else
+#endif	//CONFIG_BUFFALO
     if (mac[0] != 0x00 || (mac[0] == 0xff && mac[5] == 0xff)) {
         mac[0] = 0x00;
         mac[1] = 0x03;
@@ -388,7 +424,7 @@ int ag7240_enet_initialize(bd_t * bis)
         puts("malloc failed\n");
         return 0;
     }
-	
+
     if ((ag7240_macs[i] = (ag7240_mac_t *) malloc(sizeof (ag7240_mac_t))) == NULL) {
         puts("malloc failed\n");
         return 0;
@@ -399,7 +435,7 @@ int ag7240_enet_initialize(bd_t * bis)
 
     sprintf(dev[i]->name, "eth%d", i);
     ag7240_get_ethaddr(dev[i]);
-    
+
     ag7240_macs[i]->mac_unit = i;
     ag7240_macs[i]->mac_base = i ? AR7240_GE1_BASE : AR7240_GE0_BASE ;
     ag7240_macs[i]->dev = dev[i];
@@ -409,7 +445,7 @@ int ag7240_enet_initialize(bd_t * bis)
     dev[i]->halt = ag7240_halt;
     dev[i]->send = ag7240_send;
     dev[i]->recv = ag7240_recv;
-    dev[i]->priv = (void *)ag7240_macs[i];	
+    dev[i]->priv = (void *)ag7240_macs[i];
 
     eth_register(dev[i]);
 

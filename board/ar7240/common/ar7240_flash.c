@@ -5,6 +5,14 @@
 #include "ar7240_soc.h"
 #include "ar7240_flash.h"
 
+#ifdef	CONFIG_STATUS_LED
+#include <status_led.h>
+#endif	//CONFIG_STATUS_LED
+
+#ifndef	CONFIG_BUFFALO		//for CAMEO Design
+#error	"Need BUFFALO configuration"
+#endif	//CONFIG_BUFFALO	//for CAMEO Design
+
 /*
  * globals
  */
@@ -20,6 +28,12 @@ static void ar7240_spi_write_enable(void);
 static void ar7240_spi_poll(void);
 static void ar7240_spi_write_page(uint32_t addr, uint8_t *data, int len);
 static void ar7240_spi_sector_erase(uint32_t addr);
+#ifdef	CONFIG_BUFFALO
+static void ar7240_spi_block_erase(uint32_t addr);
+#else
+#error
+#endif	//CONFIG_BUFFALO
+
 
 static void
 read_id(void)
@@ -31,13 +45,13 @@ read_id(void)
     ar7240_spi_delay_8();
     ar7240_spi_delay_8();
     ar7240_spi_delay_8();
-    ar7240_spi_done(); 
+    ar7240_spi_done();
     /* rd = ar7240_reg_rd(AR7240_SPI_RD_STATUS); */
-    rd = ar7240_reg_rd(AR7240_SPI_READ); 
+    rd = ar7240_reg_rd(AR7240_SPI_READ);
     printf("id read %#x\n", rd);
 }
 
-unsigned long 
+unsigned long
 flash_init (void)
 {
 /*    int i;
@@ -68,16 +82,55 @@ int
 flash_erase(flash_info_t *info, int s_first, int s_last)
 {
     int i, sector_size = info->size/info->sector_count;
+#ifdef	CONFIG_STATUS_LED
+    int	led_cnt	= 0;
+#endif	//CONFIG_STATUS_LED
 
     printf("\nFirst %#x last %#x sector size %#x\n",
            s_first, s_last, sector_size);
 
+#ifdef	CONFIG_STATUS_LED
+	status_led_set(STATUS_LED_DIAG, STATUS_LED_ON);
+#endif	//CONFIG_STATUS_LED
+
+#ifndef	CONFIG_BUFFALO
     for (i = s_first; i <= s_last; i++) {
         printf("\b\b\b\b%4d", i);
         ar7240_spi_sector_erase(i * sector_size);
     }
+#else	//CONFIG_BUFFALO
+#define	SECTORS_PER_BLOCK	(AR7240_SPI_BLOCK_SIZE/AR7240_SPI_SECTOR_SIZE)
+    for (i = s_first; (i % SECTORS_PER_BLOCK) && i <= s_last; i++) {
+        printf("\b\b\b\b%4d", i);
+//		printf("erasing sector %d\n", i);
+        ar7240_spi_sector_erase(i * sector_size);
+#ifdef	CONFIG_STATUS_LED
+		status_led_set(STATUS_LED_DIAG, (led_cnt++ & 0x01) ? STATUS_LED_ON : STATUS_LED_OFF);
+#endif	//CONFIG_STATUS_LED
+    }
+    for ( ; (i + SECTORS_PER_BLOCK-1) <= s_last ; i+=SECTORS_PER_BLOCK) {
+        printf("\b\b\b\b%4d", i);
+//		printf("erasing block %d-%d\n", i, i+SECTORS_PER_BLOCK-1);
+        ar7240_spi_block_erase(i * sector_size);
+#ifdef	CONFIG_STATUS_LED
+		status_led_set(STATUS_LED_DIAG, (led_cnt++ & 0x01) ? STATUS_LED_ON : STATUS_LED_OFF);
+#endif	//CONFIG_STATUS_LED
+    }
+    for ( ; i <= s_last; i++) {
+        printf("\b\b\b\b%4d", i);
+//		printf("erasing sector %d\n", i);
+        ar7240_spi_sector_erase(i * sector_size);
+#ifdef	CONFIG_STATUS_LED
+		status_led_set(STATUS_LED_DIAG, (led_cnt++ & 0x01) ? STATUS_LED_ON : STATUS_LED_OFF);
+#endif	//CONFIG_STATUS_LED
+    }
+#endif	//CONFIG_BUFFALO
     ar7240_spi_done();
     printf("\n");
+
+#ifdef	CONFIG_STATUS_LED
+	status_led_set(STATUS_LED_DIAG, STATUS_LED_OFF);
+#endif	//CONFIG_STATUS_LED
 
     return 0;
 }
@@ -87,15 +140,22 @@ flash_erase(flash_info_t *info, int s_first, int s_last)
  * 0. Assumption: Caller has already erased the appropriate sectors.
  * 1. call page programming for every 256 bytes
  */
-int 
+int
 write_buff(flash_info_t *info, uchar *source, ulong addr, ulong len)
 {
     int total = 0, len_this_lp, bytes_this_page;
     ulong dst;
     uchar *src;
-    
-    printf ("write addr: %x\n", addr); 
+#ifdef	CONFIG_STATUS_LED
+    int	led_cnt	= 0;
+#endif	//CONFIG_STATUS_LED
+
+    printf ("write addr: %x\n", addr);
     addr = addr - CFG_FLASH_BASE;
+
+#ifdef	CONFIG_STATUS_LED
+	status_led_set(STATUS_LED_DIAG, STATUS_LED_ON);
+#endif	//CONFIG_STATUS_LED
 
     while(total < len) {
         src              = source + total;
@@ -105,32 +165,39 @@ write_buff(flash_info_t *info, uchar *source, ulong addr, ulong len)
                                                              : (len - total);
         ar7240_spi_write_page(dst, src, len_this_lp);
         total += len_this_lp;
+#ifdef	CONFIG_STATUS_LED
+        if (!(total & 0xFFFF))
+			status_led_set(STATUS_LED_DIAG, (led_cnt++ & 0x01) ? STATUS_LED_ON : STATUS_LED_OFF);
+#endif	//CONFIG_STATUS_LED
     }
 
     ar7240_spi_done();
+#ifdef	CONFIG_STATUS_LED
+	status_led_set(STATUS_LED_DIAG, STATUS_LED_OFF);
+#endif	//CONFIG_STATUS_LED
 
     return 0;
 }
 
 static void
-ar7240_spi_write_enable()  
+ar7240_spi_write_enable()
 {
-    ar7240_reg_wr_nf(AR7240_SPI_FS, 1);                  
-    ar7240_reg_wr_nf(AR7240_SPI_WRITE, AR7240_SPI_CS_DIS);     
-    ar7240_spi_bit_banger(AR7240_SPI_CMD_WREN);             
+    ar7240_reg_wr_nf(AR7240_SPI_FS, 1);
+    ar7240_reg_wr_nf(AR7240_SPI_WRITE, AR7240_SPI_CS_DIS);
+    ar7240_spi_bit_banger(AR7240_SPI_CMD_WREN);
     ar7240_spi_go();
 }
 
 static void
-ar7240_spi_poll()   
+ar7240_spi_poll()
 {
-    int rd;                                                 
+    int rd;
 
     do {
-        ar7240_reg_wr_nf(AR7240_SPI_WRITE, AR7240_SPI_CS_DIS);     
-        ar7240_spi_bit_banger(AR7240_SPI_CMD_RD_STATUS);        
+        ar7240_reg_wr_nf(AR7240_SPI_WRITE, AR7240_SPI_CS_DIS);
+        ar7240_spi_bit_banger(AR7240_SPI_CMD_RD_STATUS);
         ar7240_spi_delay_8();
-        rd = (ar7240_reg_rd(AR7240_SPI_RD_STATUS) & 1);               
+        rd = (ar7240_reg_rd(AR7240_SPI_RD_STATUS) & 1);
     }while(rd);
 }
 
@@ -159,6 +226,7 @@ ar7240_spi_write_page(uint32_t addr, uint8_t *data, int len)
 static void
 ar7240_spi_sector_erase(uint32_t addr)
 {
+//	printf("sector erase %08lX\n", (unsigned long)addr);
     ar7240_spi_write_enable();
     ar7240_spi_bit_banger(AR7240_SPI_CMD_SECTOR_ERASE);
     ar7240_spi_send_addr(addr);
@@ -166,5 +234,19 @@ ar7240_spi_sector_erase(uint32_t addr)
     display(0x7d);
     ar7240_spi_poll();
 }
+
+#ifdef	CONFIG_BUFFALO
+static void
+ar7240_spi_block_erase(uint32_t addr)
+{
+//	printf("block erase %08lX\n", (unsigned long)addr);
+    ar7240_spi_write_enable();
+    ar7240_spi_bit_banger(AR7240_SPI_CMD_BLOCK_ERASE);
+    ar7240_spi_send_addr(addr);
+    ar7240_spi_go();
+    display(0x7d);
+    ar7240_spi_poll();
+}
+#endif	//CONFIG_BUFFALO
 
 

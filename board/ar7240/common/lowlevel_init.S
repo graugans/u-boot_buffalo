@@ -14,7 +14,7 @@
     lw  t8, 0(t7);                                  \
     li  t9, ~_mask;                                 \
     and t8, t8, t9;                                 \
-    sw  t8, 0(t7)            
+    sw  t8, 0(t7)
 
 #define set_val(_reg, _mask, _val)                  \
     li  t7, KSEG1ADDR(_reg);                                   \
@@ -23,7 +23,7 @@
     and t8, t8, t9;                                 \
     li  t9, _val;                                   \
     or  t8, t8, t9;                                 \
-    sw  t8, 0(t7)            
+    sw  t8, 0(t7)
 
 #define get_val(_reg, _mask, _shift, _res_reg)      \
     li  t7, KSEG1ADDR(_reg);                                   \
@@ -53,13 +53,13 @@
 
 /******************************************************************************
  * first level initialization:
- * 
- * 0) If clock cntrl reset switch is already set, we're recovering from 
+ *
+ * 0) If clock cntrl reset switch is already set, we're recovering from
  *    "divider reset"; goto 3.
  * 1) Setup divide ratios.
  * 2) Reset.
  * 3) Setup pll's, wait for lock.
- * 
+ *
  *****************************************************************************/
 
 .globl lowlevel_init
@@ -70,6 +70,38 @@ lowlevel_init:
      * The code below is for the real chip. Wont work on FPGA
      */
     /* jr ra  */
+wdt_reset:
+	li	$3, -1207566336		# 0xffffffffb8060000
+	ori	$4, $3, 0x8
+	lw	$2, 0($4)
+	nop
+	bltz	$2, $L6
+	ori	$5, $3, 0xc
+
+	li	$3, 300			# 0x4
+	sw	$3, 0($5)
+	li	$3, 3			# 0x3
+	sw	$3, 0($4)
+$L3:
+	b	$L3
+	nop
+
+$L6:
+	nop
+	nop
+#ifndef COMPRESSED_UBOOT
+
+    /*
+     * WAR for the bug#55574: Set the CKE (bit 7 in DDR_CONFIG2 register)
+     * to low initially
+     */
+    li  t7, KSEG1ADDR(AR7240_DDR_CONFIG2);
+    lw  t8, 0(t7);
+    li  t9, 0xffffff7f;
+    and t8, t8, t9;
+    sw  t8, 0(t7);
+#endif
+
 #ifndef CONFIG_AR7240_EMU
 
     /*
@@ -83,7 +115,7 @@ init_pll_values:
 
     pll_clr(PLL_CONFIG_PLL_RESET_MASK)
     pll_set( (PLL_CONFIG_DDR_DIV_MASK | PLL_CONFIG_AHB_DIV_MASK | PLL_CONFIG_PLL_NOPWD_MASK | PLL_CONFIG_PLL_REF_DIV_MASK | PLL_CONFIG_PLL_DIV_MASK) ,( PLL_CONFIG_PLL_REF_DIV_VAL|PLL_CONFIG_PLL_DIV_VAL|PLL_CONFIG_AHB_DIV_VAL|PLL_CONFIG_DDR_DIV_VAL|PLL_CONFIG_PLL_NOPWD_VAL))
-    pll_clr(PLL_CONFIG_PLL_BYPASS_MASK) 
+    pll_clr(PLL_CONFIG_PLL_BYPASS_MASK)
 
 wait_for_pll_update:
     pll_get(PLL_CONFIG_PLL_UPDATE_MASK, PLL_CONFIG_PLL_UPDATE_SHIFT, t6)
@@ -92,7 +124,7 @@ wait_for_pll_update:
 
     /*
      * Will cause a reset
-     * The RESET_SWITCH need to be set first and then 
+     * The RESET_SWITCH need to be set first and then
      * set the CLOCK_SWITCH for the CPU to boot properly
      * after RESET.
      */

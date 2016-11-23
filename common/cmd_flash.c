@@ -330,6 +330,15 @@ int do_flerase (cmd_tbl_t *cmdtp, int flag, int argc, char *argv[])
 		}
 		return rcode;
 	}
+#ifdef CONFIG_BUFFALO
+	else if (strcmp(argv[1], "fw") == 0)
+	{
+		printf("\n Erase F/W block !!\n From 0x%08lX To 0x%08lX\n", MK_HEX(BUFFALO_FW_SADDR), MK_HEX(BUFFALO_FW_EADDR));
+		rcode = flash_sect_erase(MK_HEX(BUFFALO_FW_SADDR), MK_HEX(BUFFALO_FW_EADDR));
+
+		return rcode;
+	}
+#endif
 
 	if ((n = abbrev_spec(argv[1], &info, &sect_first, &sect_last)) != 0) {
 		if (n < 0) {
@@ -671,6 +680,131 @@ int flash_sect_protect (int p, ulong addr_first, ulong addr_last)
 	return rcode;
 }
 
+#ifdef CONFIG_BUFFALO
+static int
+do_set_buffalo_mtest(cmd_tbl_t *cmdtp, int flag, int argc, char *argv[])
+{
+	ulong	ii;
+	int	nbytes;
+	extern char console_buffer[];
+	BUFFALO_MTEST_PARAM	prm;
+	int	rc;
+
+	if (argc == 2 && strcmp(argv[1],"-l")==0) {
+		memcpy(&prm, (volatile char *)BUFFALO_MTEST_PARAM_ADDR, sizeof(prm));
+		if (prm.magic == BUFFALO_MTEST_PARAM_MAGIC || prm.version == BUFFALO_MTEST_PARAM_VER) {
+			buffalo_mtest_ddr_conf_dump(&prm);
+		}
+		return	0;
+	} else if (argc == 2 && strcmp(argv[1],"-f")==0) {
+		return	flash_sect_erase(BUFFALO_MTEST_PARAM_ADDR, MK_HEX(BUFFALO_FW_EADDR));
+
+	} else if (argc != 1) {
+		printf ("Usage:\n%s\n", cmdtp->usage);
+		return 1;
+	}
+
+	//	read from flash-rom
+	memcpy(&prm, (volatile char *)BUFFALO_MTEST_PARAM_ADDR, sizeof(prm));
+
+	if (prm.magic != BUFFALO_MTEST_PARAM_MAGIC || prm.version != BUFFALO_MTEST_PARAM_VER) {
+		printf("Not found parameter in FLASH. set defaults...\n");
+		memset(&prm, 0x00, sizeof(prm));
+		prm.magic		= BUFFALO_MTEST_PARAM_MAGIC;
+		prm.version		= BUFFALO_MTEST_PARAM_VER;
+		prm.test_mode	= 0;
+		prm.test_offset	= 0x00000000;
+		prm.test_size	= 0;
+		prm.tap_test_mode	= 0;
+		prm.vAR7240_DDR_CONFIG				= CFG_DDR_CONFIG_VAL;
+		prm.vAR7240_DDR_CONFIG2				= CFG_DDR_CONFIG2_VAL;
+		prm.vAR7240_DDR_MODE				= CFG_DDR_MODE_VAL;
+		prm.vAR7240_DDR_EXT_MODE			= CFG_DDR_EXT_MODE_VAL;
+//		prm.vAR7240_DDR_CONTROL				= ;
+		prm.vAR7240_DDR_REFRESH				= CFG_DDR_REFRESH_VAL;
+		prm.vAR7240_DDR_RD_DATA_THIS_CYCLE	= CFG_DDR_RD_DATA_THIS_CYCLE_VAL;
+		prm.vAR7240_DDR_TAP_CONTROL0		= 0x7;
+		prm.vAR7240_DDR_TAP_CONTROL1		= 0x7;
+		prm.vAR7240_DDR_TAP_CONTROL2		= 0x7;
+		prm.vAR7240_DDR_TAP_CONTROL3		= 0x7;
+	}
+
+
+	printf("Version %d\n", BUFFALO_MTEST_PARAM_VER);
+
+	static	struct	{
+		const char	*name;
+		unsigned	offset;
+		unsigned	bit_off;
+		unsigned	bit_len;
+	} item_tbl[]	= {
+		 {	"TAP TESTMODE [0=HORZ, 1=VERT, 2=BIT]", (unsigned)((unsigned long)&prm.tap_test_mode-(unsigned long)&prm), 0,2	}
+		,{	"MEM TESTMODE [0=NOT TEST, 1=WDRD, 2=WCRD, 5=WDRC, 6=WCRC]", (unsigned)((unsigned long)&prm.test_mode-(unsigned long)&prm), 0,16	}
+		,{	"START OFFSET", (unsigned)((unsigned long)&prm.test_offset-(unsigned long)&prm), 0,28	}
+		,{	"TEST SIZE [0=FULL]", (unsigned)((unsigned long)&prm.test_size-(unsigned long)&prm), 0,28	}
+		,{	"TEST PATTERN [0=AUTO]", (unsigned)((unsigned long)&prm.test_pattern-(unsigned long)&prm), 0,32	}
+		,{	"TEST WAIT per cycle [0=no wait]", (unsigned)((unsigned long)&prm.test_wait-(unsigned long)&prm), 0,32	}
+		,{	"CFG1 tRAS", (unsigned)((unsigned long)&prm.vAR7240_DDR_CONFIG-(unsigned long)&prm), 0,5	}
+		,{	"CFG1 tRCD", (unsigned)((unsigned long)&prm.vAR7240_DDR_CONFIG-(unsigned long)&prm), 5,4	}
+		,{	"CFG1 tRP", (unsigned)((unsigned long)&prm.vAR7240_DDR_CONFIG-(unsigned long)&prm), 9,4	}
+		,{	"CFG1 tRRD", (unsigned)((unsigned long)&prm.vAR7240_DDR_CONFIG-(unsigned long)&prm),13,4	}
+		,{	"CFG1 tRFC", (unsigned)((unsigned long)&prm.vAR7240_DDR_CONFIG-(unsigned long)&prm),17,6	}
+		,{	"CFG1 tMRD", (unsigned)((unsigned long)&prm.vAR7240_DDR_CONFIG-(unsigned long)&prm),23,4	}
+		,{	"CFG1 OP", (unsigned)((unsigned long)&prm.vAR7240_DDR_CONFIG-(unsigned long)&prm),30,1	}
+		,{	"CFG1 CL", (unsigned)((unsigned long)&prm.vAR7240_DDR_CONFIG-(unsigned long)&prm),27,3	}
+		,{	"CFG1 CL MSB", (unsigned)((unsigned long)&prm.vAR7240_DDR_CONFIG-(unsigned long)&prm),31,1	}
+		,{	"CFG2 BrustLength", (unsigned)((unsigned long)&prm.vAR7240_DDR_CONFIG2-(unsigned long)&prm), 0,4	}
+		,{	"CFG2 BurstType", (unsigned)((unsigned long)&prm.vAR7240_DDR_CONFIG2-(unsigned long)&prm), 4,1	}
+		,{	"CFG2 CNTL_OE_EN", (unsigned)((unsigned long)&prm.vAR7240_DDR_CONFIG2-(unsigned long)&prm), 5,1	}
+		,{	"CFG2 PHASE_SELECT", (unsigned)((unsigned long)&prm.vAR7240_DDR_CONFIG2-(unsigned long)&prm), 6,1	}
+		,{	"CFG2 CKE", (unsigned)((unsigned long)&prm.vAR7240_DDR_CONFIG2-(unsigned long)&prm), 7,1	}
+		,{	"CFG2 TWR", (unsigned)((unsigned long)&prm.vAR7240_DDR_CONFIG2-(unsigned long)&prm), 8,4	}
+		,{	"CFG2 TRTW", (unsigned)((unsigned long)&prm.vAR7240_DDR_CONFIG2-(unsigned long)&prm),12,5	}
+		,{	"CFG2 TRTP", (unsigned)((unsigned long)&prm.vAR7240_DDR_CONFIG2-(unsigned long)&prm),17,4	}
+		,{	"CFG2 TWTR", (unsigned)((unsigned long)&prm.vAR7240_DDR_CONFIG2-(unsigned long)&prm),21,5	}
+		,{	"CFG2 G_O_LATENCY", (unsigned)((unsigned long)&prm.vAR7240_DDR_CONFIG2-(unsigned long)&prm),26,4	}
+		,{	"CFG2 HALF_WIDTH", (unsigned)((unsigned long)&prm.vAR7240_DDR_CONFIG2-(unsigned long)&prm),31,1	}
+		,{	"DDR_MODE", (unsigned)((unsigned long)&prm.vAR7240_DDR_MODE-(unsigned long)&prm), 0,13	}
+		,{	"EXT_MODE", (unsigned)((unsigned long)&prm.vAR7240_DDR_EXT_MODE-(unsigned long)&prm), 0,13	}
+		,{	"PERIOD", (unsigned)((unsigned long)&prm.vAR7240_DDR_REFRESH-(unsigned long)&prm), 0,14	}
+		,{	"ENABLE", (unsigned)((unsigned long)&prm.vAR7240_DDR_REFRESH-(unsigned long)&prm),14,1	}
+		,{	"VEC", (unsigned)((unsigned long)&prm.vAR7240_DDR_RD_DATA_THIS_CYCLE-(unsigned long)&prm), 0,24	}
+	};
+
+	for (ii=0 ; ii<sizeof(item_tbl)/sizeof(item_tbl[0]) ; ii++) {
+//		printf("data [off=%02Xh, val=%08lXh, pos=%d, bits=%d]\n", item_tbl[ii].offset, UL_VAL(&prm,item_tbl[ii].offset), item_tbl[ii].bit_off, item_tbl[ii].bit_len);
+		printf("%s: %lXh", item_tbl[ii].name, GET_BITFIELD_OFF(&prm, item_tbl[ii].offset, item_tbl[ii].bit_off, item_tbl[ii].bit_len));
+
+		nbytes = readline (" ? ");
+		if (nbytes == 0) {
+			//	not change
+		} else if (nbytes < 0) {
+			break;
+		} else {
+			uint tmp	= simple_strtoul(console_buffer, NULL, 16);
+			SET_BITFIELD_OFF(&prm, item_tbl[ii].offset, item_tbl[ii].bit_off, item_tbl[ii].bit_len, tmp);
+		}
+	}
+
+	if (nbytes >= 0) {
+		printf("saving...\n");
+		rc = flash_sect_erase(BUFFALO_MTEST_PARAM_ADDR, MK_HEX(BUFFALO_FW_EADDR));
+		if (rc) {
+			flash_perror (rc);
+			return	(1);
+		}
+
+		rc = flash_write ((char *)&prm, BUFFALO_MTEST_PARAM_ADDR, sizeof(prm));
+		if (rc) {
+			flash_perror (rc);
+			return (1);
+		}
+		puts ("done\n");
+	}
+	return 0;
+}
+#endif	//CONFIG_BUFFALO
+
 
 /**************************************************/
 #if (CONFIG_COMMANDS & CFG_CMD_JFFS2) && defined(CONFIG_JFFS2_CMDLINE)
@@ -702,6 +836,9 @@ U_BOOT_CMD(
 	"erase bank N\n    - erase FLASH bank # N\n"
 	TMP_ERASE
 	"erase all\n    - erase all FLASH banks\n"
+#ifdef CONFIG_BUFFALO
+	"erase fw\n    - erase fw\n"
+#endif CONFIG_BUFFALO
 );
 
 U_BOOT_CMD(
@@ -728,6 +865,21 @@ U_BOOT_CMD(
 	TMP_PROT_OFF
 	"protect off all\n    - make all FLASH banks writable\n"
 );
+
+#ifdef	CONFIG_BUFFALO
+U_BOOT_CMD(
+	set_mtest,    2,    1,    do_set_buffalo_mtest,
+	"set_mtest  - set mtest parameters. (for next bootup)\n",
+	"\n"
+	"  -l    dump test values\n"
+	"  -f    erase test values\n"
+	"\n"
+	"  ** set slide-SW pos\n"
+	"     'auto' = not test\n"
+	"     'off'  = test [use tap fixed value]\n"
+	"     'on'   = test [calclated tap value]\n"
+);
+#endif	//CONFIG_BUFFALO
 
 #undef	TMP_ERASE
 #undef	TMP_PROT_ON

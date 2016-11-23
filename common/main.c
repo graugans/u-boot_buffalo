@@ -382,7 +382,7 @@ void main_loop (void)
 	s = getenv ("bootdelay");
 	bootdelay = s ? (int)simple_strtol(s, NULL, 10) : CONFIG_BOOTDELAY;
 
-//	debug ("### main_loop entered: bootdelay=%d\n\n", bootdelay);
+	debug ("### main_loop entered: bootdelay=%d\n\n", bootdelay);
 
 # ifdef CONFIG_BOOT_RETRY_TIME
 	init_cmd_timeout ();
@@ -411,7 +411,7 @@ void main_loop (void)
        }
 		s = getenv ("bootcmd");
 
-//	debug ("### main_loop: bootcmd=\"%s\"\n", s ? s : "<UNDEFINED>");
+	debug ("### main_loop: bootcmd=\"%s\"\n", s ? s : "<UNDEFINED>");
 
 	if (bootdelay >= 0 && s && !abortboot (bootdelay)) {
 # ifdef CONFIG_AUTOBOOT_KEYED

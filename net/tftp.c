@@ -10,7 +10,19 @@
 #include "tftp.h"
 #include "bootp.h"
 
+#ifdef	CONFIG_BUFFALO
+#define	CONFIG_FIRMWARE_IMAGE_COMBINED
+#define	CONFIG_FIRM_HEADER_DECRYPT
+#define	SPECIFICATION_MULTI
+#define	CONFIG_HW_VERSION_HEADER
+#endif	//CONFIG_BUFFALO
+
 #undef	ET_DEBUG
+
+#ifdef	CONFIG_BUFFALO
+#define TRACE() printf("%s(%d):PASS\n",__FUNCTION__,__LINE__);
+#endif	//CONFIG_BUFFALO
+
 
 #if (CONFIG_COMMANDS & CFG_CMD_NET)
 
@@ -49,6 +61,14 @@ static int	TftpState;
 #define STATE_TOO_LARGE	3
 #define STATE_BAD_MAGIC	4
 #define STATE_OACK	5
+#ifdef	CONFIG_BUFFALO
+#define	STATE_BUFFALO_DISK_FULL			11
+#define	STATE_BUFFALO_INVALID_MODEL		12
+#define	STATE_BUFFALO_INVALID_HWREV		13
+#define	STATE_BUFFALO_INVALID_REGION	14
+#endif	//CONFIG_BUFFALO
+
+#define	debug(FMT, ARGs...)	do {} while(0)
 
 #define TFTP_BLOCK_SIZE		512		    /* default TFTP block size	*/
 #define TFTP_SEQUENCE_SIZE	((ulong)(1<<16))    /* sequence number is 16 bit */
@@ -56,6 +76,12 @@ static int	TftpState;
 #define DEFAULT_NAME_LEN	(8 + 4 + 1)
 static char default_filename[DEFAULT_NAME_LEN];
 static char *tftp_filename;
+
+#ifdef	CONFIG_BUFFALO
+static void	TftpTimeout_BUFFALO (void);
+extern	ulong	NetTimeoutBuffalo;
+static	ulong	tmp_bottom	= 0;
+#endif	//CONFIG_BUFFALO
 
 #ifdef CFG_DIRECT_FLASH_TFTP
 extern flash_info_t flash_info[];
@@ -66,6 +92,18 @@ store_block (unsigned block, uchar * src, unsigned len)
 {
 	ulong offset = block * TFTP_BLOCK_SIZE + TftpBlockWrapOffset;
 	ulong newsize = offset + len;
+#ifdef	CONFIG_BUFFALO
+#undef	CFG_DIRECT_FLASH_TFTP
+	if (0
+	|| (block>=65534)	//max tftp block-no is 65535
+	|| (tmp_bottom > 0 && (load_addr + newsize) > tmp_bottom)
+	) {
+		TftpState	= STATE_TOO_LARGE;
+		NetState = NETLOOP_FAIL;
+		NetBootFileXferSize	= 0;
+		return;
+	}
+#endif	//CONFIG_BUFFALO
 #ifdef CFG_DIRECT_FLASH_TFTP
 	int i, rc = 0;
 
@@ -166,9 +204,48 @@ TftpSend (void)
 		pkt += 18 /*strlen("File has bad magic")*/ + 1;
 		len = pkt - xp;
 		break;
+
+#ifdef	CONFIG_BUFFALO
+	case	STATE_BUFFALO_DISK_FULL:
+	case	STATE_BUFFALO_INVALID_MODEL:
+	case	STATE_BUFFALO_INVALID_HWREV:
+	case	STATE_BUFFALO_INVALID_REGION:
+		{
+			uchar	*msgtbl[STATE_BUFFALO_INVALID_REGION-STATE_BUFFALO_DISK_FULL+1]	= {
+						"Disk Full",		//STATE_BUFFALO_DISK_FULL
+						"Unsupport MODEL",	//STATE_BUFFALO_INVALID_MODEL
+						"Unsupport HW",		//STATE_BUFFALO_INVALID_HWREV
+						"Unsupport REGION"	//STATE_BUFFALO_INVALID_REGION
+			};
+			ushort	errtbl[STATE_BUFFALO_INVALID_REGION-STATE_BUFFALO_DISK_FULL+1]	= {
+						3,		//STATE_BUFFALO_DISK_FULL
+						0,		//STATE_BUFFALO_INVALID_MODEL
+						0,		//STATE_BUFFALO_INVALID_HWREV
+						0		//STATE_BUFFALO_INVALID_REGION
+			};
+			xp = pkt;
+			s = (ushort *)pkt;
+			*s++ = htons(TFTP_ERROR);
+			*s++ = htons(errtbl[TftpState-STATE_BUFFALO_DISK_FULL]);
+			pkt = (uchar *)s;
+			strcpy ((char *)pkt, msgtbl[TftpState-STATE_BUFFALO_DISK_FULL]);
+			pkt += strlen(msgtbl[TftpState-STATE_BUFFALO_DISK_FULL]) + 1;
+			len = pkt - xp;
+		}
+		break;
+#endif	//CONFIG_BUFFALO
 	}
 
 	NetSendUDPPacket(NetServerEther, NetServerIP, TftpServerPort, TftpOurPort, len);
+
+#ifdef	CONFIG_BUFFALO
+	if (TftpState >= STATE_BUFFALO_DISK_FULL) {
+		//	BLINK DIAG
+		status_led_blink_num_set(STATUS_LED_DIAG, 2);
+		for (;;)	udelay(100*1000);
+		//	not reach
+	}
+#endif	//CONFIG_BUFFALO
 }
 
 
@@ -178,6 +255,16 @@ TftpHandler (uchar * pkt, unsigned dest, unsigned src, unsigned len)
 	ushort proto;
 	ushort *s;
 
+#ifdef	CONFIG_BUFFALO
+//	printf("@@ TftpHandler(%08lX, %08lX, %08lX, %08lX), STATE=%d\n", pkt, dest, src, len, TftpState);
+	//	2008.08.08	Modified for the issue of delay to send RRQ by 'tftpboot command'.
+	if (TftpState == STATE_RRQ) {
+		if (pkt==0 && dest==0 && src==0 && len==0) {	//ARP get event
+			TftpSend ();	//	start TFTP sequence
+			return;
+		}
+	}
+#endif	//CONFIG_BUFFALO
 	if (dest != TftpOurPort) {
 		return;
 	}
@@ -266,6 +353,11 @@ TftpHandler (uchar * pkt, unsigned dest, unsigned src, unsigned len)
 		}
 
 		TftpLastBlock = TftpBlock;
+#ifdef	CONFIG_BUFFALO
+		if (NetTimeoutBuffalo)
+			NetSetTimeout (1 * CFG_HZ, TftpTimeout_BUFFALO);
+		else
+#endif
 		NetSetTimeout (TIMEOUT * CFG_HZ, TftpTimeout);
 
 		store_block (TftpBlock - 1, pkt + 2, len);
@@ -295,6 +387,20 @@ TftpHandler (uchar * pkt, unsigned dest, unsigned src, unsigned len)
 	}
 }
 
+#ifdef	CONFIG_BUFFALO
+static void
+TftpTimeout_BUFFALO (void)
+{
+	if (++TftpTimeoutCount > 4) {
+		puts ("\nRetry count exceeded; starting again\n");
+		NetStartAgain ();
+	} else {
+		puts ("T ");
+		NetSetTimeout (1 * CFG_HZ, TftpTimeout_BUFFALO);
+		TftpSend ();
+	}
+}
+#endif	//CONFIG_BUFFALO
 
 static void
 TftpTimeout (void)
@@ -316,6 +422,9 @@ TftpStart (void)
 #ifdef CONFIG_TFTP_PORT
 	char *ep;             /* Environment pointer */
 #endif
+#ifdef	CONFIG_BUFFALO
+	tmp_bottom	= simple_strtoul(getenv("tmp_bottom") ? : "0", NULL, 16);
+#endif	//CONFIG_BUFFALO
 
 	if (BootFile[0] == '\0') {
 		sprintf(default_filename, "%02lX%02lX%02lX%02lX.img",
@@ -362,6 +471,11 @@ TftpStart (void)
 
 	puts ("Loading: *\b");
 
+#ifdef	CONFIG_BUFFALO
+	if (NetTimeoutBuffalo)
+		NetSetTimeout (1 * CFG_HZ, TftpTimeout_BUFFALO);
+	else
+#endif	//CONFIG_BUFFALO
 	NetSetTimeout (TIMEOUT * CFG_HZ, TftpTimeout);
 	NetSetHandler (TftpHandler);
 
@@ -385,5 +499,159 @@ TftpStart (void)
 
 	TftpSend ();
 }
+
+#ifdef	CONFIG_BUFFALO
+static int	TftpServer_StartTimeout = 5;
+
+static void TftpServer_StartTimeoutHdl(void)
+{
+	puts ("\nTftpServer Timeout;\n");
+	NetStartAgain ();
+	NetState = NETLOOP_FAIL;
+	eth_halt();
+}
+
+
+static void TftpServer_TimeoutHdl(void)
+{
+	if (++TftpTimeoutCount > TIMEOUT_COUNT) {
+		puts ("\nRetry count exceeded;\n");
+		NetState = NETLOOP_FAIL;
+		NetStartAgain ();
+	} else {
+		puts ("O ");
+		NetSetTimeout (TIMEOUT * CFG_HZ, TftpServer_TimeoutHdl);
+		TftpSend ();
+	}
+}
+
+#define STATE_WRQ	11
+
+static int	TftpClientPort;/* The UDP port at client end*/
+
+static void TftpServer_Handler (
+uchar * pkt, unsigned dest, unsigned src, unsigned len)
+{
+	ushort proto;
+	volatile IP_t *ip = (volatile IP_t *)(pkt - IP_HDR_SIZE);
+
+
+	if ((dest != WELL_KNOWN_PORT) && (dest != TftpOurPort)) {
+		return;
+	}
+	if (TftpState != STATE_WRQ && src != TftpClientPort) {
+		return;
+	}
+
+	if (len < 2) {
+		return;
+	}
+	len -= 2;
+	/* warning: don't use increment (++) in ntohs() macros!! */
+	proto = *((ushort *)pkt)++;
+	switch (ntohs(proto)) {
+	case TFTP_WRQ:
+		TftpClientPort = src;
+		TftpOurPort = 1024 + (get_timer(0) % 3072);
+		TftpServerPort = src;
+		NetServerIP = NetReadIP((void *)&ip->ip_src);
+
+		TftpState = STATE_OACK;
+		TftpBlock = 0;
+		TftpLastBlock = 0xffffffff;
+		NetSetTimeout (TIMEOUT * CFG_HZ, TftpServer_TimeoutHdl);
+		TftpSend (); /* Send ACK */
+		break;
+	case TFTP_OACK:
+#ifdef ET_DEBUG
+		printf("Got OACK: %s %s\n", pkt, pkt+strlen(pkt)+1);
+#endif
+		TftpState = STATE_OACK;
+		TftpSend (); /* Send ACK */
+		break;
+
+	case TFTP_DATA:
+		if (len < 2)
+			return;
+		len -= 2;
+		TftpBlock = ntohs(*(ushort *)pkt);
+
+		{
+			if (((TftpBlock - 1) % 10) == 0) {
+				putc ('$');
+			} else if ((TftpBlock % (10 * HASHES_PER_LINE)) == 0) {
+				puts ("\n\t ");
+			}
+		}
+
+		if (TftpBlock == TftpLastBlock) {
+			/*
+			 *	Same block again; ignore it.
+			 */
+			break;
+		}
+
+		TftpLastBlock = TftpBlock;
+		if (len == TFTP_BLOCK_SIZE) {
+			NetSetTimeout (TIMEOUT * CFG_HZ,
+				TftpServer_TimeoutHdl);
+		}
+#ifdef	CONFIG_BUFFALO
+		if (TftpState < STATE_BUFFALO_DISK_FULL)
+#endif	//CONFIG_BUFFALO
+		store_block (TftpBlock - 1, pkt + 2, len);
+
+		TftpSend ();/* Send ACK */
+
+		if (len < TFTP_BLOCK_SIZE) {
+			/*
+			 *	We received the whole thing.  Try to
+			 *	run it.
+			 */
+			puts ("\ntftp server done\n");
+			NetState = NETLOOP_SUCCESS;
+		}
+		break;
+
+	case TFTP_ERROR:
+		printf ("\nTFTPserver error: '%s' (%d)\n",
+					pkt + 2, ntohs(*(ushort *)pkt));
+		puts ("Starting again\n\n");
+		NetStartAgain ();
+		break;
+
+	default:
+		break;
+	}
+}
+
+void TftpServer(void)
+{
+	// This server receive one file to pointer 'load_addr',
+
+	char *timeout = getenv("tftp_wait");
+	int t = (int)simple_strtoul(timeout, NULL, 10);
+
+
+	tmp_bottom	= simple_strtoul(getenv("tmp_bottom") ? : "0", NULL, 16);
+
+
+	if(t){
+		TftpServer_StartTimeout = t;
+	}
+
+	printf("\ntftp server(receive) go, waiting:%d[sec]\n",
+		TftpServer_StartTimeout);
+	memset((void *)load_addr, 0, TFTP_BLOCK_SIZE);
+	NetStartAgain ();
+	//ArpRequest ();
+	printf ("Load address: 0x%lx\n", load_addr);
+	//read WRQ with timeout
+	TftpState = STATE_WRQ;
+	NetSetTimeout (TftpServer_StartTimeout * CFG_HZ,
+			TftpServer_StartTimeoutHdl);
+	NetSetHandler (TftpServer_Handler);
+}
+#endif	//CONFIG_BUFFALO
 
 #endif /* CFG_CMD_NET */

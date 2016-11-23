@@ -24,6 +24,8 @@
 /*
  * Boot support
  */
+//#define	BUFFALO_TEST_NO_WRITE
+
 #include <common.h>
 #include <command.h>
 #include <net.h>
@@ -56,6 +58,19 @@ U_BOOT_CMD(
 	"tftpboot- boot image via network using TFTP protocol\n",
 	"[loadAddress] [bootfilename]\n"
 );
+
+#ifdef	CONFIG_BUFFALO
+int do_tftps (cmd_tbl_t *cmdtp, int flag, int argc, char *argv[])
+{
+	return netboot_common (TFTPS, cmdtp, argc, argv);
+}
+
+U_BOOT_CMD(
+	TFTPS,	2,	1,	do_tftps,
+	"TFTPS   - boot image via network as TFTP server\n",
+	"[buf]\n"
+);
+#endif	//CONFIG_BUFFALO
 
 int do_rarpb (cmd_tbl_t *cmdtp, int flag, int argc, char *argv[])
 {
@@ -151,23 +166,118 @@ static void netboot_update_env (void)
 #endif
 }
 
+#ifdef	CONFIG_BUFFALO
+
+#define HEADER_STR "# Airstation FirmWare"
+int header_str_check(char *buf)
+{
+	int i_ret = 0;
+	static char * header_str = HEADER_STR;
+{
+	char t[64];
+	memcpy(t, buf, 32);
+	t[32] = 0;
+}
+
+	if (strstr(buf, header_str)){
+		i_ret = 1;
+	}
+	return i_ret;
+}
+
+#define	HEADER_STR_PUBLIC	"# Airstation Public Fmt1"
+int header_public_str_check(char *buf)
+{
+	int i_ret = 0;
+	char	chk[32];
+
+	memset(chk, 0, sizeof(chk));	//check 32 bytes
+	strncpy(chk, HEADER_STR_PUBLIC, sizeof(chk));
+
+	if (memcmp(buf, chk, sizeof(chk))==0) {
+		i_ret	= sizeof(chk);
+	}
+	return i_ret;		//return header length
+}
+
+int header_check(char *buf)
+{
+	int i_ret = 0;
+	if (i_ret){
+		i_ret =1;
+	}else{
+		char	tmp[512];
+		memcpy(tmp, buf, 512);
+		i_ret = header_str_check(tmp);
+		if (i_ret){
+			memcpy(buf, tmp, 512);
+			i_ret =1;
+		}
+	}
+	return i_ret;
+}
+
+int header_public_check(char *buf)
+{
+	int	i_ret	= 0;
+	char *s;
+
+	if ((s = getenv("accept_open_rt_fmt")) != NULL) {
+		if (simple_strtoul(s, NULL, 0)) {
+			i_ret	= header_public_str_check(buf);
+			if (i_ret) {
+				printf("\nAirstation Public header\n");
+			}
+		}
+	}
+
+	return	i_ret;	//return header length
+}
+#endif	//CONFIG_BUFFALO
+
 static int
 netboot_common (proto_t proto, cmd_tbl_t *cmdtp, int argc, char *argv[])
 {
 	char *s;
 	int   rcode = 0;
 	int   size;
+#ifdef	CONFIG_BUFFALO
+	int	f_erase_all	= 0;
+#endif	//CONFIG_BUFFALO
 
 	/* pre-set load_addr */
 	if ((s = getenv("loadaddr")) != NULL) {
 		load_addr = simple_strtoul(s, NULL, 16);
+#ifdef	CONFIG_BUFFALO
+	}else if((s = getenv((uchar*)("memtmp_addr"))) != NULL){
+		load_addr = simple_strtoul(s, NULL, 16);
+#endif	//CONFIG_BUFFALO
 	}
+
+#ifdef	CONFIG_BUFFALO
+	//	erase ALL when "buffalo fw --> user fw"
+	{
+		ulong	addr;
+		for (addr=MK_HEX(BUFFALO_FW_EADDR)+1 - (0x8000*4) ; addr < MK_HEX(BUFFALO_FW_EADDR) ; addr+=0x8000) {
+			if (strncmp((char *)addr, "ProjectY",8)==0) {
+				f_erase_all	= 1;
+				break;
+			}
+		}
+	}
+#endif	//CONFIG_BUFFALO
 
 	switch (argc) {
 	case 1:
 		break;
 
-	case 2:	/* only one arg - accept two forms:
+	case 2:
+#ifdef	CONFIG_BUFFALO
+	  if(strcmp(argv[0], "TFTPS") == 0){
+		copy_filename (BootFile, argv[1], sizeof(BootFile));
+	  }else{
+#endif	//CONFIG_BUFFALO
+		/* only one arg - accept two forms:
 		 * just load address, or just boot file name.
 		 * The latter form must be written "filename" here.
 		 */
@@ -176,6 +286,9 @@ netboot_common (proto_t proto, cmd_tbl_t *cmdtp, int argc, char *argv[])
 		} else {			/* load address	*/
 			load_addr = simple_strtoul(argv[1], NULL, 16);
 		}
+#ifdef	CONFIG_BUFFALO
+	  }
+#endif	//CONFIG_BUFFALO
 		break;
 
 	case 3:	load_addr = simple_strtoul(argv[1], NULL, 16);
@@ -188,10 +301,161 @@ netboot_common (proto_t proto, cmd_tbl_t *cmdtp, int argc, char *argv[])
 	}
 
 	if ((size = NetLoop(proto)) < 0)
+#ifdef	CONFIG_BUFFALO
+	{
+	  if (strcmp(argv[0], "TFTPS") != 0 || strcmp(argv[1], "buf") != 0) {
+#endif	//CONFIG_BUFFALO
 		return 1;
+#ifdef	CONFIG_BUFFALO
+	  }
+	} else {
+#endif	//CONFIG_BUFFALO
+
 
 	/* NetLoop ok, update environment */
 	netboot_update_env();
+#ifdef	CONFIG_BUFFALO
+	}
+#endif	//CONFIG_BUFFALO
+
+#ifdef	CONFIG_BUFFALO
+#define HEADER_MAX 512
+#define BUF_LEN_LEN 4
+#define CMD_CNT_LEN 4
+	{
+		int		f_chkheader	= 0;
+		if(strcmp(argv[0], "TFTPS") == 0 && strcmp(argv[1], "buf") == 0){
+			f_chkheader	= 1;
+		} else
+		if (strcmp(argv[0],"tftpboot")==0 && (s=getenv("inspection"))!=NULL && strcmp(s,"1")==0) {
+			//	inspection-mode
+			image_header_t	*hdr	= (image_header_t *)load_addr;
+			if (ntohl(hdr->ih_magic) == IH_MAGIC) {
+				if (do_iminfo(NULL,0,0,NULL)==0) {
+					char *local_args[2];
+					local_args[0] = argv[0];
+					local_args[1] = NULL;
+					do_bootm(cmdtp, 0, 1, local_args);
+				}
+				//	BLINK DIAG
+				status_led_blink_num_set(STATUS_LED_DIAG, 2);
+				for (;;)	udelay(100*1000);
+				//	not reach
+
+			} else {
+				f_chkheader	= 1;
+			}
+		}
+		if (f_chkheader) {
+			if(size > 0){
+				char * pData = (char *)load_addr;
+				char * pEnd = pData + HEADER_MAX;
+				char * pNL;
+				int ret = 0;
+
+#ifdef	CONFIG_BUFFALO
+				{
+					char	tmp[256];
+					printf("Buffalo F/W format recved.\n");
+					sprintf(tmp, "erase %08lX %08lX; cp.b $fileaddr %08lX $filesize; bootm %08lX;",
+								MK_HEX(BUFFALO_FW_SADDR), MK_HEX(BUFFALO_FW_EADDR), MK_HEX(BUFFALO_FW_SADDR), MK_HEX(BUFFALO_FW_SADDR));
+					setenv("u_fw",tmp);
+#ifndef	BUFFALO_TEST_NO_WRITE
+					run_command("run u_fw", 0/*flag*/);
+#else	//BUFFALO_TEST_NO_WRITE
+					run_command("printenv u_fw", 0/*flag*/);
+					run_command("printenv fileaddr", 0/*flag*/);
+					run_command("printenv filesize", 0/*flag*/);
+					printf("\n\n-- dumping --\n\n");
+					setenv("uu_fw", "md.b $fileaddr");
+					run_command("run uu_fw", 0/*flag*/);
+					printf("skip writing...\n");
+#endif	//BUFFALO_TEST_NO_WRITE
+				}
+#endif
+				ret = header_check(pData);
+				if (ret){
+					{
+						char	tmp[16];
+						sprintf(tmp,"%lx",size-512);
+						setenv("filesize",tmp);
+						sprintf(tmp,"%lX",load_addr+512);
+						setenv("fileaddr",tmp);
+					}
+					printf("Buffalo F/W format recved.\n");
+					while(pData < pEnd){
+						pNL = strchr(pData, '\n');
+						if(pNL){
+							*pNL = 0;//NULL terminated!
+							if(pData[0] == 0){
+								//BLANK LINE means EOF
+								break;
+							}else if(pData[0] != '#'){
+								run_command(pData, 0/*flag*/);
+							}
+							pData = pNL + 1;
+						}else{
+							break;
+						}
+					}//end of while
+#if	1		//	for "# AirStation Public Fmt1"
+				} else if ( ret=header_public_check(pData) ) {	//return header length
+					int		recv_fw_size= size - ret;
+					int		max_fw_size	= (MK_HEX(BUFFALO_FW_EADDR)+1 - MK_HEX(BUFFALO_FW_SADDR));
+					//	size_check
+					if (recv_fw_size <= 0) {
+						printf("No firmware image.\n");
+
+						//	BLINK DIAG
+						status_led_blink_num_set(STATUS_LED_DIAG, 2);
+						for (;;)	udelay(100*1000);
+						//	not reach
+					} else if (max_fw_size < recv_fw_size) {
+						printf("Firmware image size too large!\n");
+
+						//	BLINK DIAG
+						status_led_blink_num_set(STATUS_LED_DIAG, 2);
+						for (;;)	udelay(100*1000);
+						//	not reach
+						size	= 0;
+					} else {
+						char	tmp[256];
+						printf("Recv fw image [%d] bytes, now writing...\n\n", recv_fw_size);
+						sprintf(tmp, "erase %08lX +%08lX; cp.b %08lX %08lX %lX; bootm %08lX;",
+								MK_HEX(BUFFALO_FW_SADDR), f_erase_all ? (MK_HEX(BUFFALO_FW_EADDR)-MK_HEX(BUFFALO_FW_SADDR)+1): recv_fw_size,
+								load_addr+ret, MK_HEX(BUFFALO_FW_SADDR), recv_fw_size,
+								MK_HEX(BUFFALO_FW_SADDR));
+						setenv("public_fw",tmp);
+						sprintf(tmp,"%lx",size-ret);
+						setenv("filesize",tmp);
+						sprintf(tmp,"%lX",load_addr+ret);
+						setenv("fileaddr",tmp);
+#ifndef	BUFFALO_TEST_NO_WRITE
+						run_command("run public_fw", 0/*flag*/);
+#else	//BUFFALO_TEST_NO_WRITE
+						run_command("printenv public_fw", 0/*flag*/);
+						run_command("printenv fileaddr", 0/*flag*/);
+						run_command("printenv filesize", 0/*flag*/);
+						printf("\n\n-- dumping --\n\n");
+						setenv("uu_fw", "md.b $fileaddr");
+						run_command("run uu_fw", 0/*flag*/);
+						printf("skip writing...\n");
+#endif	//BUFFALO_TEST_NO_WRITE
+						//not reach this line
+					}
+					return	0;
+#endif		//	for "# AirStation Public Fmt1"
+
+				}else{
+				}
+			}else{
+				printf("no file was loaded.\n");
+				if(strcmp(argv[0], "TFTPS") == 0 && strcmp(argv[1], "buf") == 0)
+					return	2;
+			}
+		}
+	}
+#endif	//CONFIG_BUFFALO
 
 	/* done if no file was loaded (no errors though) */
 	if (size == 0)

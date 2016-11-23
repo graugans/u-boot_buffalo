@@ -323,7 +323,9 @@ BootpHandler(uchar * pkt, unsigned dest, unsigned src, unsigned len)
 	 *	Got a good BOOTP reply.	 Copy the data into our variables.
 	 */
 #ifdef CONFIG_STATUS_LED
+#ifndef	CONFIG_BUFFALO
 	status_led_set (STATUS_LED_BOOT, STATUS_LED_OFF);
+#endif	//CONFIG_BUFFALO
 #endif
 
 	BootpCopyNetParams(bp);		/* Store net parameters from reply */

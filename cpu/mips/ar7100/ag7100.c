@@ -13,6 +13,11 @@
 #if (CONFIG_COMMANDS & CFG_CMD_MII)
 #include <miiphy.h>
 #endif
+#ifdef	CONFIG_BUFFALO		//for CAMEO Design
+#define DEBUG_MSG
+//#define DEBUG_MSG printf
+#endif	//CONFIG_BUFFALO	//for CAMEO Design
+#define ag7100_unit2mac(_unit)     ag7100_macs[(_unit)]
 #define ag7100_name2mac(name)	   (strcmp(name,"eth0") ? ag7100_unit2mac(1) : ag7100_unit2mac(0))
 
 int ag7100_miiphy_read(char *devname, unsigned char phaddr,
@@ -21,6 +26,9 @@ int ag7100_miiphy_write(char *devname, unsigned char phaddr,
 	        unsigned char reg, unsigned short data);
 
 ag7100_mac_t *ag7100_macs[CFG_AG7100_NMACS];
+#ifdef	CONFIG_BUFFALO		//for CAMEO Design
+unsigned char __local_enet_addr[];
+#endif	//CONFIG_BUFFALO	//for CAMEO Design
 #if 0
 void pkt_dump(char *data,int pkt_size) {
 
@@ -44,16 +52,13 @@ pkt_push(uint8_t *pkt,int length)
    free(buf);
 }
 
-
-ag7100_mac_t *ag7100_unit2mac(int unit)
-{
-    return (unit ? ag7100_macs[1] : ag7100_macs[0]);
-}
-
 static int
 ag7100_send(struct eth_device *dev, volatile void *packet, int length)
 {
     int i;
+#ifdef	CONFIG_BUFFALO		//for CAMEO Design
+	int j;
+#endif	//CONFIG_BUFFALO	//for CAMEO Design
     ag7100_mac_t *mac = (ag7100_mac_t *)dev->priv;
 
     ag7100_desc_t *f = mac->fifo_tx[mac->next_tx];
@@ -62,8 +67,9 @@ ag7100_send(struct eth_device *dev, volatile void *packet, int length)
     uint8_t *pkt_buf;
 
     pkt_buf = (uint8_t *) packet;
-    /* 
-     * Add normal packet headers if its not a control packet 
+#ifndef	CONFIG_BUFFALO		//for CAMEO Design
+    /*
+     * Add normal packet headers if its not a control packet
      */
     if (((pkt_buf[0] & 0xff) != 0x7f) && ((pkt_buf[1] & 0xff) != 0x5d)) {
         pkt_push(pkt_buf,length);
@@ -75,9 +81,37 @@ ag7100_send(struct eth_device *dev, volatile void *packet, int length)
         length  = (length - ATHRHDR_LEN);
         pkt_buf = (uint8_t *) ((uint8_t *)pkt_buf + 2);
     }
+#else	//CONFIG_BUFFALO	//for CAMEO Design
+    if ((pkt_buf[1] & 0xf) != 0x5) {
+#if 0//def DUMP_PKT
+        DEBUG_MSG("pkt dump\n");
+        for (i = 0; i < length; i++) {
+            DEBUG_MSG("pkt[%d] %x ", i, buf[i]);
+            for (j = 7; j >= 0; j--)
+				DEBUG_MSG("%d", ((buf[i] >> j) & 1));
+            DEBUG_MSG("\n");
+        }
+#endif
+        length = length + ATHRHDR_LEN;
+        pkt_buf = (uint8_t *) packet - ATHRHDR_LEN;
+        pkt_buf[0] = 0x10;  /* broadcast = 0; from_cpu = 0; reserved = 1; port_num = 0 */
+        pkt_buf[1] = 0x80;  /* reserved = 0b10; priority = 0; type = 0 (normal) */
+    }
+#endif	//CONFIG_BUFFALO	//for CAMEO Design
     f->pkt_size = length;
     f->pkt_start_addr = virt_to_phys(pkt_buf);
 #else
+#ifdef	CONFIG_BUFFALO		//for CAMEO Design
+#if 0//def DUMP_PKT
+	uint8_t *buf;
+    buf = (uint8_t *) packet;
+        printf("sed pkt dump\n");
+        for (i = 0; i < length; i++) {
+            printf("%x-",buf[i]);
+        }
+        printf("\n");
+#endif
+#endif	//CONFIG_BUFFALO	//for CAMEO Design
     f->pkt_size = length;
     f->pkt_start_addr = virt_to_phys(packet);
 #endif
@@ -103,12 +137,20 @@ ag7100_send(struct eth_device *dev, volatile void *packet, int length)
     return (0);
 }
 
+#ifdef	CONFIG_BUFFALO		//for CAMEO Design
+unsigned char uip_buf[];
+extern volatile unsigned short uip_len;
+#endif	//CONFIG_BUFFALO	//for CAMEO Design
+
 static int ag7100_recv(struct eth_device *dev)
 {
     int length;
+#ifdef	CONFIG_BUFFALO		//for CAMEO Design
+	int i;
+#endif	//CONFIG_BUFFALO	//for CAMEO Design
     ag7100_desc_t *f;
     ag7100_mac_t *mac;
- 
+
     mac = (ag7100_mac_t *)dev->priv;
 
     for (;;) {
@@ -135,53 +177,12 @@ static int ag7100_recv(struct eth_device *dev)
     return (0);
 }
 
-#ifdef CFG_ATHRS16_PHY 
-/*
- * program the usb pll (misnomer) to genrate appropriate clock
- * Write 2 into control field
- * Write pll value 
- * Write 3 into control field
- * Write 0 into control field
- */ 
-#define ag7100_pll_shift(_mac)      (((_mac)->mac_unit) ? 19: 17)
-#define ag7100_pll_offset(_mac)     \
-    (((_mac)->mac_unit) ? AR7100_USB_PLL_GE1_OFFSET : \
-                          AR7100_USB_PLL_GE0_OFFSET)
-static void
-ag7100_set_pll(ag7100_mac_t *mac, unsigned int pll)
-{
-#define ETH_PLL_CONFIG AR7100_USB_PLL_CONFIG
-    uint32_t shift, reg, val;
-
-    shift = ag7100_pll_shift(mac);
-    reg   = ag7100_pll_offset(mac);
-
-    val  = ar7100_reg_rd(ETH_PLL_CONFIG);
-    val &= ~(3 << shift);
-    val |=  (2 << shift);
-    ar7100_reg_wr(ETH_PLL_CONFIG, val);
-    udelay(100);
-
-    ar7100_reg_wr(reg, pll);
-
-    val |=  (3 << shift);
-    ar7100_reg_wr(ETH_PLL_CONFIG, val);
-    udelay(100);
-
-    val &= ~(3 << shift);
-    ar7100_reg_wr(ETH_PLL_CONFIG, val);
-    udelay(100);
-
-    printf("pll reg %#x: %#x  ", reg, ar7100_reg_rd(reg));
-}
-#endif
-
 static void ag7100_hw_start(ag7100_mac_t *mac)
 {
     u32 mii_ctrl_val, isXGMII = CFG_GMII;
 
 #ifdef CFG_MII0_RGMII
-    mii_ctrl_val = 0x12; /* this value seems to be incorrect - JK */
+    mii_ctrl_val = 0x12;
 #else
 #ifdef CFG_MII0_MII
     mii_ctrl_val = 0x11;
@@ -198,19 +199,22 @@ static void ag7100_hw_start(ag7100_mac_t *mac)
     ag7100_reg_rmw_set(mac, AG7100_MAC_CFG2, (AG7100_MAC_CFG2_PAD_CRC_EN |
 		         AG7100_MAC_CFG2_LEN_CHECK));
 
+#if 1
     ag7100_set_mac_if(mac, isXGMII);
+#endif
 
+    //ag7100_reg_wr(mac, AG7100_MAC_CFG2, 0x7135);
     ag7100_reg_wr(mac, AG7100_MAC_FIFO_CFG_0, 0x1f00);
 
-#if !defined(CFG_BOARD_PB45) && !defined(CFG_BOARD_AP96)
+#if 0
+    ag7100_reg_wr(mac, AR7100_MII0_CTRL, ag7100_get_mii_if());
+#else
+	/* just mii 0 setting type and speed */
     if(mac->mac_unit == 0) {
         ar7100_reg_wr(AR7100_MII0_CTRL, mii_ctrl_val);
     } else {
         ar7100_reg_wr(AR7100_MII1_CTRL, mii_ctrl_val);
     }
-#else
-    //printf("%s: mii_if %#x\n", __func__, mii_if(mac));
-    ar7100_reg_wr(mii_reg(mac), mii_if(mac));
 #endif
 
     //ag7100_reg_wr(mac, AG7100_MAC_IFCTL, 0x10000);
@@ -226,25 +230,17 @@ static void ag7100_hw_start(ag7100_mac_t *mac)
 #endif
     ag7100_reg_wr(mac, AG7100_MAC_FIFO_CFG_1, 0xfff0000);
     ag7100_reg_wr(mac, AG7100_MAC_FIFO_CFG_2, 0x1fff);
-//printf(": cfg1 %#x cfg2 %#x\n", ag7100_reg_rd(mac, AG7100_MAC_CFG1),
-//        ag7100_reg_rd(mac, AG7100_MAC_CFG2));
 
+    printf(": cfg1 %#x cfg2 %#x\n", ag7100_reg_rd(mac, AG7100_MAC_CFG1),
+        ag7100_reg_rd(mac, AG7100_MAC_CFG2));
 }
 
-static int is_setup_done = 0;
 static void ag7100_set_mac_from_link(ag7100_mac_t *mac, int speed, int fdx)
 {
     int is1000 = (speed == _1000BASET);
     int is100 = (speed == _100BASET);
 
-#ifdef CFG_ATHRS16_PHY 
-    if(!is_setup_done && mac->mac_unit == 0 && (mac->speed != speed || mac->duplex != fdx))
-    {
-       phy_mode_setup();
-       is_setup_done = 1;
-    }
-#endif
-
+	printf("ag7100_set_mac_from_link:\n");
     mac->speed = speed;
     mac->duplex = fdx;
 
@@ -257,15 +253,6 @@ static void ag7100_set_mac_from_link(ag7100_mac_t *mac, int speed, int fdx)
     /*
      * XXX program PLL
      */
-#ifdef CFG_ATHRS16_PHY 
-    if (is1000)
-        ag7100_set_pll(mac, 0x110000);
-    else if (is100)
-        ag7100_set_pll(mac, 0x0001099);
-    else
-        ag7100_set_pll(mac, 0x00991099);
-#endif
-
     mac->link = 1;
 }
 
@@ -273,13 +260,17 @@ static int ag7100_check_link(ag7100_mac_t *mac)
 {
     u32 link, duplex, speed, fdx, i;
 
-#ifdef AR9100
-
 #if !defined(CFG_ATHRS26_PHY) && !defined(CFG_ATHRHDR_EN)
     ag7100_phy_link(mac->mac_unit, link, duplex, speed);
     ag7100_phy_duplex(mac->mac_unit,duplex);
     ag7100_phy_speed(mac->mac_unit,speed);
 
+#ifdef	CONFIG_BUFFALO		//for CAMEO Design
+	if(duplex){
+		 duplex = FULL;
+		 printf("%s is duplex\n",mac->dev->name);
+	}
+#endif	//CONFIG_BUFFALO	//for CAMEO Design
     mac->link = link;
     if(!mac->link) {
         printf("%s link down\n",mac->dev->name);
@@ -289,9 +280,38 @@ static int ag7100_check_link(ag7100_mac_t *mac)
      duplex = FULL;
      speed = _100BASET;
 #endif
-      if (speed == _1000BASET) {
-	    uint32_t shift, reg, val;
 
+      if (speed == _1000BASET) {
+#ifdef	CONFIG_BUFFALO		//for CAMEO Design
+    	printf("ag7100_check_link: _1000BASET\n");
+#endif	//CONFIG_BUFFALO	//for CAMEO Design
+
+#ifdef AR9100
+	uint32_t shift, reg, val;
+#endif
+
+#ifndef AR9100
+        i = *(volatile int *) 0xb8050004;
+        i = i | (0x6 << 19);
+        *(volatile int *) 0xb8050004 = i;
+        udelay(100);
+        *(volatile int *) 0xb8050014 = 0x1a000000;
+
+        i = *(volatile int *) 0xb8050004;
+        i = i & (~(0x3b << 19));
+        *(volatile int *) 0xb8050004 = i;
+        udelay(100);
+
+        i = *(volatile int *) 0xb8050004;
+        i = i | (0x3 << 20);
+        *(volatile int *) 0xb8050004 = i;
+        udelay(100);
+
+        i = *(volatile int *) 0xb8050004;
+        i = i & (~(0x3 << 20));
+        *(volatile int *) 0xb8050004 = i;
+        udelay(100);
+#endif
         if(!mac->mac_unit){
             ar7100_reg_wr(AR7100_MII0_CTRL, 0x22);
 	} else {
@@ -302,6 +322,7 @@ static int ag7100_check_link(ag7100_mac_t *mac)
         ag7100_reg_rmw_set(mac, AG7100_MAC_CFG2, 0x7215);
         ag7100_reg_wr(mac, AG7100_MAC_FIFO_CFG_3, 0x780fff);
 
+#ifdef AR9100
 #define ag7100_pll_shift(_mac)	(((_mac)->mac_unit) ? 22: 20)
 #define ag7100_pll_offset(_mac)	(((_mac)->mac_unit) ? 0xb8050018 : 0xb8050014)
 #define ETH_PLL_CONFIG		0xb8050004
@@ -316,7 +337,15 @@ static int ag7100_check_link(ag7100_mac_t *mac)
 	udelay(100);
 
 	if (mac->mac_unit) {
+#ifndef	CONFIG_BUFFALO		//for CAMEO Design
         	*(volatile int *) 0xb8050018 = 0x1f000000;
+#else	//CONFIG_BUFFALO	//for CAMEO Design
+			printf("mac unit %d\n",mac->mac_unit);
+			printf("Changing 1a to 1f\n");
+			*(volatile int *) 0xb8050018 = 0xf0000000;
+//			*(volatile int *) 0xb8050018 = 0x1a000000;
+//			*(volatile int *) 0xb8050018 = 0x00000100;
+#endif	//CONFIG_BUFFALO	//for CAMEO Design
 	} else {
         	*(volatile int *) 0xb8050014 = 0x1a000000;
 	}
@@ -329,6 +358,8 @@ static int ag7100_check_link(ag7100_mac_t *mac)
 	ar7100_reg_wr(ETH_PLL_CONFIG, val);
 	udelay(100);
 
+	//printf("pll reg %#x: %#x  ", reg, ar7100_reg_rd(reg));
+#endif
 
         ag7100_reg_rmw_set(mac, AG7100_MAC_FIFO_CFG_5, (1 << 19));
 
@@ -338,6 +369,10 @@ static int ag7100_check_link(ag7100_mac_t *mac)
             miiphy_write(mac->dev->name, CFG_PHY_ADDR, 0x1f, 0x0);
        }
     } else if (speed == _100BASET) {
+#ifdef	CONFIG_BUFFALO		//for CAMEO Design
+		printf("ag7100_check_link: _100BASET\n");
+#endif	//CONFIG_BUFFALO	//for CAMEO Design
+#ifdef AR9100
 #define ag7100_pll_shift(_mac)	(((_mac)->mac_unit) ? 22: 20)
 #define ag7100_pll_offset(_mac)	(((_mac)->mac_unit) ? 0xb8050018 : 0xb8050014)
 #define ETH_PLL_CONFIG		0xb8050004
@@ -353,7 +388,11 @@ static int ag7100_check_link(ag7100_mac_t *mac)
 	udelay(100);
 
 	if (mac->mac_unit) {
+#ifndef	CONFIG_BUFFALO		//for CAMEO Design
         	*(volatile int *) 0xb8050018 = 0x1f000000;
+#else	//CONFIG_BUFFALO	//for CAMEO Design
+        	*(volatile int *) 0xb8050018 = 0x13000a44;
+#endif	//CONFIG_BUFFALO	//for CAMEO Design
 	} else {
         	*(volatile int *) 0xb8050014 = 0x13000a44;
 	}
@@ -368,6 +407,33 @@ static int ag7100_check_link(ag7100_mac_t *mac)
 
 	//printf(": pll reg %#x: %#x  ", reg, ar7100_reg_rd(reg));
 
+#else
+
+        i = *(volatile int *) 0xb8050004;
+        i = i | (0x3 << 20);
+        *(volatile int *) 0xb8050004 = i;
+        udelay(100);
+
+        *(volatile int *) 0xb8050014 = 0x13000a44;
+
+        *(volatile int *) 0xb805001c = 0x00000909;
+        udelay(100);
+
+        i = *(volatile int *) 0xb8050004;
+        i = i & (~(0x1 << 20));
+        *(volatile int *) 0xb8050004 = i;
+        udelay(100);
+
+        i = *(volatile int *) 0xb8050004;
+        i = i | (0x3 << 20);
+        *(volatile int *) 0xb8050004 = i;
+        udelay(100);
+
+        i = *(volatile int *) 0xb8050004;
+        i = i & (~(0x3 << 20));
+        *(volatile int *) 0xb8050004 = i;
+        udelay(100);
+#endif
         ag7100_reg_rmw_clear(mac, AG7100_MAC_CFG2, 0xffff);
         ag7100_reg_rmw_set(mac, AG7100_MAC_CFG2, 0x7115);
     }
@@ -387,24 +453,36 @@ static int ag7100_check_link(ag7100_mac_t *mac)
     else if (speed == _10BASET)
         ag7100_set_mac_speed(mac, 0);
 
+#ifdef	CONFIG_BUFFALO		//for CAMEO Design
+	printf("CFG_PLL_FREQ=%x\n", CFG_PLL_FREQ);
+	printf("CFG_HZ=%x\n", CFG_HZ);
+	printf("cpu pll=%x\n",*(volatile int *) 0xb8050000);
+	printf("eth pll=%x\n",*(volatile int *) 0xb8050004);
+	if (!mac->mac_unit){
+		printf("eth0 clk pll=%x\n",*(volatile int *) 0xb8050014);
+		printf("eth0 mii=%x\n",*(volatile int *) 0xb8070000);
+		printf("eth0 cfg1=%x\n",*(volatile int *) 0xb9000000);
+		printf("eth0 cfg2=%x\n",*(volatile int *) 0xb9000004);
+		printf("eth0 fcfg_0=%x\n", *(volatile int *) 0xb9050048);
+		printf("eth0 fcfg_1=%x\n", *(volatile int *) 0xb905004c);
+		printf("eth0 fcfg_2=%x\n", *(volatile int *) 0xb9050050);
+		printf("eth0 fcfg_3=%x\n", *(volatile int *) 0xb9050054);
+		printf("eth0 fcfg_4=%x\n", *(volatile int *) 0xb9050058);
+		printf("eth0 fcfg_5=%x\n", *(volatile int *) 0xb905005c);
+	}else{
+		printf("eth1 clk pll=%x\n",*(volatile int *) 0xb8050018);
+		printf("eth1 mii=%x\n",*(volatile int *) 0xb8070004);
+		printf("eth1 cfg1=%x\n",*(volatile int *) 0xba000000);
+		printf("eth1 cfg2=%x\n",*(volatile int *) 0xba000004);
+		printf("eth1 fcfg_0=%x\n", *(volatile int *) 0xba050048);
+		printf("eth1 fcfg_1=%x\n", *(volatile int *) 0xba05004c);
+		printf("eth1 fcfg_2=%x\n", *(volatile int *) 0xba050050);
+		printf("eth1 fcfg_3=%x\n", *(volatile int *) 0xba050054);
+		printf("eth1 fcfg_4=%x\n", *(volatile int *) 0xba050058);
+		printf("eth1 fcfg_5=%x\n", *(volatile int *) 0xba05005c);
+	}
+#endif	//CONFIG_BUFFALO	//for CAMEO Design
     return 1;
-#else
-    ag7100_get_link_status(mac->mac_unit, &link, &duplex, &speed);
-
-    mac->link = link;
-    
-    if(!mac->link) {
-        printf("%s link down\n",mac->dev->name);
-        return 0;
-    }
-
-    if (mac->link && (duplex == mac->duplex) && (speed == mac->speed))
-        return 1;
-
-    ag7100_set_mac_from_link(mac, speed, duplex);
-    return 1;
-#endif
-
 }
 
 /*
@@ -430,7 +508,7 @@ static int ag7100_clean_rx(struct eth_device *dev, bd_t * bd)
 
     ag7100_reg_wr(mac, AG7100_DMA_RX_DESC, virt_to_phys(mac->fifo_rx[0]));
     ag7100_reg_wr(mac, AG7100_DMA_RX_CTRL, AG7100_RXE);	/* rx start */
-    udelay(2000);
+    udelay(1000 * 1000);
 
 
     return 1;
@@ -497,27 +575,51 @@ ag7100_mac_addr_loc(void)
 {
 	extern flash_info_t flash_info[];
 
-#ifdef BOARDCAL
-    /*
-    ** BOARDCAL environmental variable has the address of the cal sector
-    */
-    
-    return ((unsigned char *)BOARDCAL);
-    
-#else
 	/* MAC address is store in the 2nd 4k of last sector */
 	return ((unsigned char *)
+#ifndef	CONFIG_BUFFALO		//for CAMEO Design
 		(KSEG1ADDR(AR7100_SPI_BASE) + (4 * 1024) +
 		flash_info[0].size - (64 * 1024) /* sector_size */ ));
-#endif
+#else	//CONFIG_BUFFALO	//for CAMEO Design
+		((CFG_FLASH_BASE) + (4 * 1024) +
+		flash_info[0].size - (64 * 1024) /* sector_size */ ));
+#endif	//CONFIG_BUFFALO	//for CAMEO Design
 
 }
 
 static void ag7100_get_ethaddr(struct eth_device *dev)
 {
+#if 0
+    int x, temp;
+    char *s, *e, buf[64];
+
+    temp = getenv_r("ethaddr", buf, sizeof(buf));
+    s = (temp > 0) ? buf : NULL;
+
+    for (x = 0; x < 6; ++x) {
+        dev->enetaddr[x] = s ? simple_strtoul(s, &e, 16) : 0;
+        if (s)
+            s = (*e) ? e + 1 : e;
+    }
+#else
     unsigned char *eeprom;
     unsigned char *mac = dev->enetaddr;
 
+#ifdef	CONFIG_BUFFALO
+    {
+		char *tmp, *end;
+		tmp = getenv ("uboot_ethaddr");
+		if (tmp) {
+			int	i;
+			for (i=0; i<6; i++) {
+				mac[i] = tmp ? simple_strtoul(tmp, &end, 16) : 0;
+				if (tmp)
+					tmp = (*end) ? end+1 : end;
+			}
+			return;
+		}
+    }
+#endif	//CONFIG_BUFFALO
     eeprom = ag7100_mac_addr_loc();
 
     if (strcmp(dev->name, "eth0") == 0) {
@@ -539,7 +641,10 @@ static void ag7100_get_ethaddr(struct eth_device *dev)
         mac[4] = 0x0b;
         mac[5] = 0xad;
         printf("No valid address in Flash. Using fixed address\n");
+    } else {
+        printf("Fetching MAC Address from 0x%p\n", __func__, eeprom);
     }
+#endif
 }
 
 #ifdef CONFIG_AR9100_MDIO_DEBUG
@@ -583,7 +688,6 @@ int ag7100_enet_initialize(bd_t * bis)
 
     printf("ag7100_enet_initialize...\n");
 
-#ifdef AR9100
    /* Workaround to bring the TX_EN to low */
 
      i = *(volatile int *) 0xb806001c ;
@@ -600,102 +704,102 @@ int ag7100_enet_initialize(bd_t * bis)
      i = *(volatile int *) 0xb806001c ;
     *(volatile int *) 0xb806001c = (i | 0x3300);
     udelay(10 * 1000);
-#endif
 
     for (i = 0;i < CFG_AG7100_NMACS;i++) {
 
-    if ((dev[i] = (struct eth_device *) malloc(sizeof (struct eth_device))) == NULL) {
-        puts("malloc failed\n");
-        return 0;
-    }
-	
-    if ((ag7100_macs[i] = (ag7100_mac_t *) malloc(sizeof (ag7100_mac_t))) == NULL) {
-        puts("malloc failed\n");
-        return 0;
-    }
+        if ((dev[i] = (struct eth_device *) malloc(sizeof (struct eth_device))) == NULL) {
+            puts("malloc failed\n");
+            return 0;
+        }
 
-    memset(ag7100_macs[i], 0, sizeof(ag7100_macs[i]));
-    memset(dev[i], 0, sizeof(dev[i]));
+        if ((ag7100_macs[i] = (ag7100_mac_t *) malloc(sizeof (ag7100_mac_t))) == NULL) {
+            puts("malloc failed\n");
+            return 0;
+        }
 
-    sprintf(dev[i]->name, "eth%d", i);
-    ag7100_get_ethaddr(dev[i]);
-    
-    ag7100_macs[i]->mac_unit = i;
-    ag7100_macs[i]->mac_base = i ? AR7100_GE1_BASE : AR7100_GE0_BASE ;
-    ag7100_macs[i]->dev = dev[i];
+        memset(ag7100_macs[i], 0, sizeof(ag7100_macs[i]));
+        memset(dev[i], 0, sizeof(dev[i]));
 
-    dev[i]->iobase = 0;
-    dev[i]->init = ag7100_clean_rx;
-    dev[i]->halt = ag7100_halt;
-    dev[i]->send = ag7100_send;
-    dev[i]->recv = ag7100_recv;
-    dev[i]->priv = (void *)ag7100_macs[i];	
+        sprintf(dev[i]->name, "eth%d", i);
+        ag7100_get_ethaddr(dev[i]);
 
-    eth_register(dev[i]);
+        ag7100_macs[i]->mac_unit = i;
+        ag7100_macs[i]->mac_base = i ? AR7100_GE1_BASE : AR7100_GE0_BASE ;
+        ag7100_macs[i]->dev = dev[i];
+
+        dev[i]->iobase = 0;
+        dev[i]->init = ag7100_clean_rx;
+        dev[i]->halt = ag7100_halt;
+        dev[i]->send = ag7100_send;
+        dev[i]->recv = ag7100_recv;
+        dev[i]->priv = (void *)ag7100_macs[i];
+
+        eth_register(dev[i]);
 
 #if defined(CFG_ATHRS26_PHY) && defined(CFG_ATHRHDR_EN)
-    athrs26_reg_dev(dev[i]);
+        athrs26_reg_dev(dev[i]);
 #endif
 #if (CONFIG_COMMANDS & CFG_CMD_MII)
-    miiphy_register(dev[i]->name, ag7100_miiphy_read, ag7100_miiphy_write);
+        miiphy_register(dev[i]->name, ag7100_miiphy_read, ag7100_miiphy_write);
 #endif
-        /*
-        ** This is the actual reset sequence
-        */
-        
-        mask = i ?(AR7100_RESET_GE1_MAC | AR7100_RESET_GE1_PHY) :
-                  (AR7100_RESET_GE0_MAC | AR7100_RESET_GE0_PHY);
+        if(!i) {
+            mask = (AR7100_RESET_GE0_MAC | AR7100_RESET_GE0_PHY |
+                    AR7100_RESET_GE1_MAC | AR7100_RESET_GE1_PHY);
 
-        ar7100_reg_rmw_set(AR7100_RESET, mask);
-        udelay(10000);
+            ar7100_reg_rmw_set(AR7100_RESET, mask);
+            udelay(1000 * 100);
 
-        ar7100_reg_rmw_clear(AR7100_RESET, mask);
-        udelay(10000);
+            ar7100_reg_rmw_clear(AR7100_RESET, mask);
+            udelay(1000 * 100);
 
-    ag7100_hw_start(ag7100_macs[i]);
-    ag7100_setup_fifos(ag7100_macs[i]);
+            udelay(10 * 1000);
+#ifdef	CONFIG_BUFFALO		//for CAMEO Design
+			memcpy(__local_enet_addr, dev[i]->enetaddr, 6);
+#endif	//CONFIG_BUFFALO	//for CAMEO Design
+        }
+    /* ethernet 0 mii and mac setting */
+        ag7100_hw_start(ag7100_macs[i]);
+    /* ethernet setting fifo desc */
+        ag7100_setup_fifos(ag7100_macs[i]);
 
 #if defined(CFG_ATHRS26_PHY) && defined(CFG_SWITCH_FREQ)
-    pll_value = ar7100_reg_rd(AR7100_CPU_PLL_CONFIG);
-    mask = pll_value & ~(PLL_CONFIG_PLL_FB_MASK | PLL_CONFIG_REF_DIV_MASK);
-    mask = mask | (0x64 << PLL_CONFIG_PLL_FB_SHIFT) |
-        (0x5 << PLL_CONFIG_REF_DIV_SHIFT) | (1 << PLL_CONFIG_AHB_DIV_SHIFT);
+        pll_value = ar7100_reg_rd(AR7100_CPU_PLL_CONFIG);
+        mask = pll_value & ~(PLL_CONFIG_PLL_FB_MASK | PLL_CONFIG_REF_DIV_MASK);
+        mask = mask | (0x64 << PLL_CONFIG_PLL_FB_SHIFT) |
+            (0x5 << PLL_CONFIG_REF_DIV_SHIFT) | (1 << PLL_CONFIG_AHB_DIV_SHIFT);
 
-    ar7100_reg_wr_nf(AR7100_CPU_PLL_CONFIG, mask);
-    udelay(10 * 1000);
+        ar7100_reg_wr_nf(AR7100_CPU_PLL_CONFIG, mask);
+        udelay(100 * 1000);
 #endif
 
-    ag7100_phy_setup(ag7100_macs[i]->mac_unit);
-    udelay(10 * 1000);
+        ag7100_phy_setup(ag7100_macs[i]->mac_unit);
+        udelay(100 * 1000);
 
 #if defined(CFG_ATHRS26_PHY) && defined(CFG_SWITCH_FREQ)
-    ar7100_reg_wr_nf(AR7100_CPU_PLL_CONFIG, pll_value);
-    udelay(10 * 1000);
+        ar7100_reg_wr_nf(AR7100_CPU_PLL_CONFIG, pll_value);
+        udelay(100 * 1000);
 #endif
-    {
-        unsigned char *mac = dev[i]->enetaddr;
+        {
+            unsigned char *mac = dev[i]->enetaddr;
 
-        printf("%s: %02x:%02x:%02x:%02x:%02x:%02x\n", dev[i]->name,
-               mac[0] & 0xff, mac[1] & 0xff, mac[2] & 0xff,
-               mac[3] & 0xff, mac[4] & 0xff, mac[5] & 0xff);
-    }
-    mac_l = (dev[i]->enetaddr[4] << 8) | (dev[i]->enetaddr[5]);
-    mac_h = (dev[i]->enetaddr[0] << 24) | (dev[i]->enetaddr[1] << 16) |
-        (dev[i]->enetaddr[2] << 8) | (dev[i]->enetaddr[3] << 0);
-
-    ag7100_reg_wr(ag7100_macs[i], AG7100_GE_MAC_ADDR1, mac_l);
-    ag7100_reg_wr(ag7100_macs[i], AG7100_GE_MAC_ADDR2, mac_h);
+            printf("%s: %02x:%02x:%02x:%02x:%02x:%02x\n", dev[i]->name,
+                   mac[0] & 0xff, mac[1] & 0xff, mac[2] & 0xff,
+                   mac[3] & 0xff, mac[4] & 0xff, mac[5] & 0xff);
+        }
+        mac_l = (dev[i]->enetaddr[4] << 8) | (dev[i]->enetaddr[5]);
+        mac_h = (dev[i]->enetaddr[0] << 24) | (dev[i]->enetaddr[1] << 16) |
+            (dev[i]->enetaddr[2] << 8) | (dev[i]->enetaddr[3] << 0);
+	/* ethernet 0 mac addrs setting */
+        ag7100_reg_wr(ag7100_macs[i], AG7100_GE_MAC_ADDR1, mac_l);
+        ag7100_reg_wr(ag7100_macs[i], AG7100_GE_MAC_ADDR2, mac_h);
 
 #if defined(CFG_ATHRS26_PHY) && defined(CFG_ATHRHDR_EN)
-    /* if using header for register configuration, we have to     */
-    /* configure s26 register after frame transmission is enabled */
+        /* if using header for register configuration, we have to     */
+        /* configure s26 register after frame transmission is enabled */
     	athrs26_reg_init();
-#elif defined(CFG_ATHRS16_PHY)
-    if (ag7100_macs[i]->mac_unit == 1)
-        athrs16_reg_init();
 #endif
 
-    printf("%s up\n",dev[i]->name);
+        printf("%s up\n",dev[i]->name);
     }
 
 #ifdef CONFIG_AR9100_MDIO_DEBUG
@@ -734,7 +838,6 @@ int ag7100_miiphy_write(char *devname, unsigned char phaddr,
     uint16_t addr = (phaddr << AG7100_ADDR_SHIFT) | reg;
     volatile int rddata;
     ag7100_mac_t *mac = ag7100_name2mac(devname);
-
 
     ag7100_reg_wr(mac, AG7100_MII_MGMT_ADDRESS, addr);
     ag7100_reg_wr(mac, AG7100_MII_MGMT_CTRL, data);

@@ -29,26 +29,26 @@
 #define         UART16550_READ(y)   ar7240_reg_rd((AR7240_UART_BASE+y))
 #define         UART16550_WRITE(x, z)  ar7240_reg_wr((AR7240_UART_BASE+x), z)
 
-void 
+void
 ar7240_sys_frequency(u32 *cpu_freq, u32 *ddr_freq, u32 *ahb_freq)
 {
     u32 pll, pll_div, ref_div, ahb_div, ddr_div, freq;
 
     pll = ar7240_reg_rd(AR7240_CPU_PLL_CONFIG);
 
-    pll_div = 
+    pll_div =
         ((pll & PLL_CONFIG_PLL_DIV_MASK) >> PLL_CONFIG_PLL_DIV_SHIFT);
 
     ref_div =
         ((pll & PLL_CONFIG_PLL_REF_DIV_MASK) >> PLL_CONFIG_PLL_REF_DIV_SHIFT);
 
-    ddr_div = 
+    ddr_div =
         ((pll & PLL_CONFIG_DDR_DIV_MASK) >> PLL_CONFIG_DDR_DIV_SHIFT) + 1;
 
-    ahb_div = 
+    ahb_div =
        (((pll & PLL_CONFIG_AHB_DIV_MASK) >> PLL_CONFIG_AHB_DIV_SHIFT) + 1)*2;
 
-    freq = pll_div * ref_div * 5000000; 
+    freq = pll_div * ref_div * 5000000;
 
     if (cpu_freq)
         *cpu_freq = freq;
@@ -65,10 +65,12 @@ void serial_init(void)
     u32 div,val;
     u32 ahb_freq, ddr_freq, cpu_freq;
 
-    ar7240_sys_frequency(&cpu_freq, &ddr_freq, &ahb_freq);  
 
-    div  = ahb_freq/(16 * CONFIG_BAUDRATE);  
+    ar7240_sys_frequency(&cpu_freq, &ddr_freq, &ahb_freq);
 
+    div  = ahb_freq/(16 * CONFIG_BAUDRATE);
+
+#ifndef	CONFIG_BUFFALO
     MY_WRITE(0xb8040000, 0xcff);
     MY_WRITE(0xb8040008, 0x3b);
 
@@ -76,23 +78,36 @@ void serial_init(void)
     MY_WRITE(0xb8040028,(val | 0x8402));
 
     MY_WRITE(0xb8040008, 0x2f);
+#else	//CONFIG_BUFFALO
+#define	UART_MASK	0x600
+#define	SPI_MASK	0x03C
+    val	= ar7240_reg_rd(AR7240_GPIO_OE);
+    val	= (val & ~(u32)SPI_MASK)  |  0x1c;	//SPI
+    val	= (val & ~(u32)UART_MASK) | 0x400;	//UART
+    ar7240_reg_wr_nf(AR7240_GPIO_OE, val);
 
-    /* 
-     * set DIAB bit 
+    ar7240_reg_wr_nf(AR7240_GPIO_OUT, (ar7240_reg_rd(AR7240_GPIO_OUT) & ~(u32)SPI_MASK) | 0x18);
+    ar7240_reg_rmw_set(AR7240_GPIO_FUNC, 0x48002);
+    ar7240_reg_wr_nf(AR7240_GPIO_OUT, (ar7240_reg_rd(AR7240_GPIO_OUT) & ~(u32)SPI_MASK) | 0x0c);
+#endif	//CONFIG_BUFFALO
+
+    /*
+     * set DIAB bit
      */
     UART16550_WRITE(OFS_LINE_CONTROL, 0x80);
-        
+
     /* set divisor */
     UART16550_WRITE(OFS_DIVISOR_LSB, (div & 0xff));
     UART16550_WRITE(OFS_DIVISOR_MSB, ((div >> 8) & 0xff));
 
-    /* clear DIAB bit*/ 
+    /* clear DIAB bit*/
     UART16550_WRITE(OFS_LINE_CONTROL, 0x00);
 
     /* set data format */
     UART16550_WRITE(OFS_DATA_FORMAT, 0x3);
 
     UART16550_WRITE(OFS_INTR_ENABLE, 0);
+
 }
 
 int serial_tstc (void)

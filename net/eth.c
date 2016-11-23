@@ -106,7 +106,6 @@ int eth_get_dev_index (void)
 int eth_register(struct eth_device* dev)
 {
 	struct eth_device *d;
-
 	if (!eth_devices) {
 		eth_current = eth_devices = dev;
 #ifdef CONFIG_NET_MULTI
@@ -124,7 +123,6 @@ int eth_register(struct eth_device* dev)
 
 	dev->state = ETH_STATE_INIT;
 	dev->next  = eth_devices;
-
 	return 0;
 }
 
@@ -256,6 +254,10 @@ int eth_initialize(bd_t *bis)
 			}
 
 			sprintf(enetvar, eth_number ? "eth%daddr" : "ethaddr", eth_number);
+#ifdef	CONFIG_BUFFALO
+			tmp = getenv ("uboot_ethaddr");
+			if (!tmp)
+#endif	//CONFIG_BUFFALO
 			tmp = getenv (enetvar);
 
 			for (i=0; i<6; i++) {
@@ -286,6 +288,12 @@ int eth_initialize(bd_t *bis)
 				memcpy(dev->enetaddr, env_enetaddr, 6);
 			}
 #endif
+#ifdef	CONFIG_BUFFALO
+			printf("  %02X:%02X:%02X:%02X:%02X:%02X\n",
+					       dev->enetaddr[0], dev->enetaddr[1],
+					       dev->enetaddr[2], dev->enetaddr[3],
+					       dev->enetaddr[4], dev->enetaddr[5]);
+#endif	//CONFIG_BUFFALO
 
 			eth_number++;
 			dev = dev->next;
@@ -350,6 +358,23 @@ int eth_init(bd_t *bis)
 		return 0;
 
 	old_current = eth_current;
+#if	defined(CONFIG_BUFFALO) && defined(CONFIG_AR7240)
+	if (strcmp(eth_current->name,"eth0")==0)
+		eth_try_another(0);
+	if (strcmp(eth_current->name,"eth1")==0) {
+		ulong	tim_stt	= get_timer(0);
+		for ( ; get_timer(0) - tim_stt < 2 * CFG_HZ ; )
+			;
+//		for ( ; get_timer(0) - tim_stt < 2 * CFG_HZ ; ) {
+			if (eth_current->init(eth_current, bis)) {
+				eth_current->state = ETH_STATE_ACTIVE;
+				return	1;
+			}
+//		}
+		return	0;
+	}
+#endif	//CONFIG_BUFFALO && CONFIG_AR7240
+
 	do {
 #if !defined(CFG_ATHRS26_PHY) && !defined(CFG_ATHRHDR_EN)
 		debug ("Trying %s\n", eth_current->name);

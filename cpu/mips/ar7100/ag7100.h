@@ -32,7 +32,6 @@ typedef struct {
     u32            speed;
     u32		   mac_unit;
     u32 	   mac_base;
-    
 }ag7100_mac_t;
 
 #define ag7100_reg_wr(_mac, _x, _y)   ar7100_reg_wr(((_x) + _mac->mac_base), (_y))
@@ -46,32 +45,8 @@ typedef struct {
 /*
  * spd is _1000BASET, _100BASET etc. defined in include/miiphy.h
  */
-
-#if defined (CFG_AG7100_GE0_GMII)
-    #define     AG7100_MII0_INTERFACE   0x20
-#elif defined (CFG_AG7100_GE0_MII)
-    #define     AG7100_MII0_INTERFACE   0x11
-#elif defined (CFG_AG7100_GE0_RGMII)
-    #define     AG7100_MII0_INTERFACE   0x22
-#elif defined (CFG_AG7100_GE0_RMII)
-    #define     AG7100_MII0_INTERFACE   0x13
-#else
-    #error "GE0 MII type not defined"
-#endif /*defined (AG7100_GE0_GMII)*/
-
-/*
- * Port 1 may or may not be connected
- */
-#if defined (CFG_AG7100_GE1_RGMII)
-    #define AG7100_MII1_INTERFACE   0x20
-#elif defined (CFG_AG7100_GE1_RMII)
-    #define AG7100_MII1_INTERFACE   0x21
-#else
-    #define AG7100_MII1_INTERFACE   0xff
-#endif /*AG7100_GE1_RGMII*/
-
 #define mii_reg(_mac)   (AR7100_MII0_CTRL + ((_mac)->mac_unit * 4))
-#define mii_if(_mac)    (((_mac)->mac_unit == 0) ? AG7100_MII0_INTERFACE : AG7100_MII1_INTERFACE)
+#define mii_if(_mac)    (((_mac)->mac_unit == 0) ? mii0_if : mii1_if)
 
 #define ag7100_set_mii_ctrl_speed(_mac, _spd)   do {                        \
     ar7100_reg_rmw_clear(mii_reg(_mac), (3 << 4));                          \
@@ -87,7 +62,7 @@ typedef struct {
 #elif defined (CFG_MII0_RMII)
 #define ag7100_get_mii_if()             0
 #endif
-        
+
 #define MAX_WAIT        1000
 
 /*
@@ -233,7 +208,5 @@ typedef struct {
     else                                                                      \
         ag7100_reg_rmw_clear(_mac, AG7100_MAC_IFCTL, AG7100_MAC_IFCTL_SPEED)\
 }while(0)
-
-ag7100_mac_t *ag7100_unit2mac(int unit);
 
 #endif

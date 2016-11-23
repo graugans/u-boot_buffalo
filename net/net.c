@@ -56,6 +56,12 @@
  *	We want:	- load the boot file
  *	Next step:	none
  *
+ * TFTPS:
+ *
+ *	Prerequisites:	- own ethernet address
+ *			- own IP address
+ *	Next step:	none
+ *
  * NFS:
  *
  *	Prerequisites:	- own ethernet address
@@ -195,6 +201,13 @@ int		NetArpWaitTxPacketSize;
 uchar 		NetArpWaitPacketBuf[PKTSIZE_ALIGN + PKTALIGN];
 ulong		NetArpWaitTimerStart;
 int		NetArpWaitTry;
+#ifdef	CONFIG_BUFFALO
+ulong	NetTimeoutBuffalo		= 0;
+#define	NET_TIMEOUT_BUFFALO		5
+#endif	//CONFIG_BUFFALO
+#ifdef	CONFIG_BUFFALO_NO_ARP
+int	f_dont_reply_arp	= 1;
+#endif	//CONFIG_BUFFALO_NO_ARP
 
 void ArpRequest (void)
 {
@@ -239,6 +252,26 @@ void ArpRequest (void)
 	(void) eth_send (NetTxPacket, (pkt - NetTxPacket) + ARP_HDR_SIZE);
 }
 
+#ifdef	CONFIG_BUFFALO
+void ArpTimeoutCheck_BUFFALO(void)
+{
+	ulong t;
+
+	if (!NetArpWaitPacketIP)
+		return;
+
+	t = get_timer(0);
+
+	/* check for arp timeout */
+	if ((t - NetArpWaitTimerStart) > 1 * CFG_HZ) {
+		NetArpWaitTry++;
+		NetArpWaitTimerStart = t;
+		puts("\nArpTimeoutCheck_BUFFALO \n");
+		ArpRequest();
+	}
+}
+#endif	//CONFIG_BUFFALO
+
 void ArpTimeoutCheck(void)
 {
 	ulong t;
@@ -275,6 +308,12 @@ NetLoop(proto_t protocol)
 #if defined(CFG_ATHRS26_PHY) && defined(CFG_ATHRHDR_EN)
 	static int AthrHdr_Flag = 0;
 #endif
+#ifdef	CONFIG_BUFFALO_NO_ARP
+	f_dont_reply_arp		= 0;
+	if (protocol == TFTPS && getenv("uboot_ethaddr")) {
+		f_dont_reply_arp		= 1;
+	}
+#endif	//CONFIG_BUFFALO_NO_ARP
 
 #ifdef CONFIG_NET_MULTI
 	NetRestarted = 0;
@@ -364,6 +403,10 @@ restart:
 #endif
 	case NETCONS:
 	case TFTP:
+#ifdef	CONFIG_BUFFALO
+	case TFTPS:
+#endif	//CONFIG_BUFFALO
+
 		NetCopyIP(&NetOurIP, &bd->bi_ip_addr);
 		NetOurGatewayIP = getenv_IPaddr ("gatewayip");
 		NetOurSubnetMask= getenv_IPaddr ("netmask");
@@ -486,6 +529,11 @@ restart:
 			SntpStart();
 			break;
 #endif
+#ifdef	CONFIG_BUFFALO
+		case TFTPS:
+			TftpServer();
+			break;
+#endif	//CONFIG_BUFFALO
 		default:
 			break;
 		}
@@ -534,6 +582,12 @@ skip_netloop:
 			puts ("\nAbort\n");
 			return (-1);
 		}
+
+#ifdef	CONFIG_BUFFALO
+		if (NetTimeoutBuffalo)
+			ArpTimeoutCheck_BUFFALO();
+		else
+#endif	//CONFIG_BUFFALO
 #if defined(CFG_ATHRS26_PHY) && defined(CFG_ATHRHDR_EN)
                 if(protocol != ATHRHDR)
 			ArpTimeoutCheck();
@@ -630,6 +684,15 @@ void NetStartAgain (void)
 		NetState = NETLOOP_FAIL;
 		return;
 	}
+#ifdef	CONFIG_BUFFALO
+	if (NetTimeoutBuffalo) {
+		if ((get_timer(0) - NetTimeoutBuffalo) > NET_TIMEOUT_BUFFALO * CFG_HZ) {
+			eth_halt ();
+			NetState = NETLOOP_FAIL;
+			return;
+		}
+	}
+#endif	//CONFIG_BUFFALO
 #ifndef CONFIG_NET_MULTI
 	NetSetTimeout (10 * CFG_HZ, startAgainTimeout);
 	NetSetHandler (startAgainHandler);
@@ -1345,6 +1408,10 @@ NetReceive(volatile uchar * inpkt, int len)
 #ifdef ET_DEBUG
 			puts ("Got ARP REQUEST, return our IP\n");
 #endif
+#ifdef	CONFIG_BUFFALO_NO_ARP
+			if (f_dont_reply_arp)
+				return;
+#endif	//CONFIG_BUFFALO_NO_ARP
 			pkt = (uchar *)et;
 			pkt += NetSetEther(pkt, et->et_src, PROT_ARP);
 			arp->ar_op = htons(ARPOP_REPLY);
@@ -1353,6 +1420,9 @@ NetReceive(volatile uchar * inpkt, int len)
 			memcpy   (&arp->ar_data[ 0], NetOurEther, 6);
 			NetCopyIP(&arp->ar_data[ 6], &NetOurIP);
 			(void) eth_send((uchar *)et, (pkt - (uchar *)et) + ARP_HDR_SIZE);
+#ifdef CONFIG_BUFFALO
+			ArpRequest();	// Gratuitous ARP
+#endif
 			return;
 
 		case ARPOP_REPLY:		/* arp reply */
@@ -1376,9 +1446,14 @@ NetReceive(volatile uchar * inpkt, int len)
 				/* save address for later use */
 				memcpy(NetArpWaitPacketMAC, &arp->ar_data[0], 6);
 
+#ifdef	CONFIG_BUFFALO
+//				if (packetHandler)
+//					(*packetHandler)(0,0,0,0);
+#else
 #ifdef CONFIG_NETCONSOLE
 				(*packetHandler)(0,0,0,0);
 #endif
+#endif	//CONFIG_BUFFALO
 				/* modify header, and transmit it */
 				memcpy(((Ethernet_t *)NetArpWaitTxPacket)->et_dest, NetArpWaitPacketMAC, 6);
 				(void) eth_send(NetArpWaitTxPacket, NetArpWaitTxPacketSize);
@@ -1402,6 +1477,9 @@ NetReceive(volatile uchar * inpkt, int len)
 #ifdef ET_DEBUG
 		puts ("Got RARP\n");
 #endif
+#ifdef	CONFIG_BUFFALO
+		puts ("Got RARP\n");
+#endif	//CONFIG_BUFFALO
 		arp = (ARP_t *)ip;
 		if (len < ARP_HDR_SIZE) {
 			printf("bad length %d < %d\n", len, ARP_HDR_SIZE);
@@ -1419,6 +1497,13 @@ NetReceive(volatile uchar * inpkt, int len)
 			if (NetServerIP == 0)
 				NetCopyIP(&NetServerIP, &arp->ar_data[ 6]);
 			memcpy (NetServerEther, &arp->ar_data[ 0], 6);
+#ifdef	CONFIG_BUFFALO
+			printf("Got RARP, from server %d.%d.%d.%d / eth addr (%02x:%02x:%02x:%02x:%02x:%02x)\n",
+				arp->ar_data[6], arp->ar_data[7], arp->ar_data[8], arp->ar_data[9],
+				arp->ar_data[0], arp->ar_data[1],
+				arp->ar_data[2], arp->ar_data[3],
+				arp->ar_data[4], arp->ar_data[5]);
+#endif	//CONFIG_BUFFALO
 
 			(*packetHandler)(0,0,0,0);
 		}
@@ -1590,7 +1675,9 @@ static int net_check_prereq (proto_t protocol)
 #if (CONFIG_COMMANDS & (CFG_CMD_PING | CFG_CMD_SNTP))
     common:
 #endif
-
+#ifdef	CONFIG_BUFFALO
+	case TFTPS:
+#endif	//CONFIG_BUFFALO
 		if (NetOurIP == 0) {
 			puts ("*** ERROR: `ipaddr' not set\n");
 			return (1);
